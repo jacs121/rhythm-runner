@@ -1,0 +1,1750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhythm Obstacle Runner - V3 Fixed</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: #0a0a1a;
+        }
+
+        /* Touch Controls for Mobile */
+        .mobile-controls {
+            display: none;
+            grid-template-columns: repeat(3, 70px);
+            gap: 12px;
+            position: fixed;
+            bottom: 15px;
+            right: 15px;
+            z-index: 100;
+        }
+
+        .mobile-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid #00ffff;
+            color: white;
+            font-size: 1.8em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            touch-action: manipulation;
+        }
+
+        .mobile-btn:active {
+            background: rgba(0, 255, 255, 0.4);
+            transform: scale(0.95);
+        }
+
+        @media (max-width: 768px), (max-height: 600px) {
+            .mobile-controls {
+                display: grid;
+            }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00ffff;
+            animation: spin 1s ease-in-out infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Mobile Controls -->
+    <div class="mobile-controls">
+        <button class="mobile-btn" id="leftBtn" style="grid-column: 1; grid-row: 2;">←</button>
+        <button class="mobile-btn" id="upBtn" style="grid-column: 2; grid-row: 1;">↑</button>
+        <button class="mobile-btn" id="downBtn" style="grid-column: 2; grid-row: 2;">↓</button>
+        <button class="mobile-btn" id="rightBtn" style="grid-column: 3; grid-row: 2;">→</button>
+        <button class="mobile-btn" id="dashBtn" style="grid-column: 2; grid-row: 3; font-size: 1.1em;">DASH</button>
+        <button class="mobile-btn" id="pauseBtn" style="grid-column: 3; grid-row: 3;">⏸</button>
+    </div>
+
+    <script>
+        // ==================== ENHANCED BEAT DETECTION ENGINE ====================
+        class EnhancedBeatDetector {
+            constructor() {
+                this.audioContext = null;
+                this.audioBuffer = null;
+                this.sampleRate = 0;
+            }
+
+            async analyzeAudio(audioBuffer) {
+                this.audioBuffer = audioBuffer;
+                this.sampleRate = audioBuffer.sampleRate;
+                
+                const duration = audioBuffer.duration;
+                const obstacles = [];
+                
+                const channelData = audioBuffer.getChannelData(0);
+                
+                // VERY STRICT laser detection
+                const laserObstacles = this.detectLaserBeats(channelData, duration);
+                const squareObstacles = this.detectSquareBeats(channelData, duration);
+                const triangleObstacles = this.detectTriangleBeats(channelData, duration);
+                
+                const allObstacles = [
+                    ...laserObstacles,
+                    ...squareObstacles,
+                    ...triangleObstacles
+                ].sort((a, b) => a.time - b.time);
+                
+                return this.filterObstacles(allObstacles);
+            }
+
+            detectLaserBeats(channelData, duration) {
+                const obstacles = [];
+                const chunkDuration = 0.15; // Even less frequent checks
+                const chunkSize = Math.floor(this.sampleRate * chunkDuration);
+                const numChunks = Math.floor(channelData.length / chunkSize);
+                
+                for (let i = 0; i < numChunks; i++) {
+                    const startSample = i * chunkSize;
+                    const endSample = Math.min(startSample + chunkSize, channelData.length);
+                    const timestamp = (startSample / this.sampleRate) * 1000;
+                    
+                    // EXTREMELY strict thresholds
+                    const transient = this.detectTransient(channelData, startSample, endSample);
+                    const highFreq = this.getHighFrequencyEnergy(channelData, startSample, endSample);
+                    
+                    // Very strict conditions - only the sharpest peaks
+                    if (transient > 0.5 && highFreq > 0.25) {
+                        obstacles.push({
+                            time: timestamp,
+                            type: 'laser',
+                            energy: transient
+                        });
+                    }
+                }
+                
+                return obstacles;
+            }
+
+            detectSquareBeats(channelData, duration) {
+                const obstacles = [];
+                const chunkDuration = 0.05;
+                const chunkSize = Math.floor(this.sampleRate * chunkDuration);
+                const numChunks = Math.floor(channelData.length / chunkSize);
+                
+                for (let i = 0; i < numChunks; i++) {
+                    const startSample = i * chunkSize;
+                    const endSample = Math.min(startSample + chunkSize, channelData.length);
+                    const timestamp = (startSample / this.sampleRate) * 1000;
+                    
+                    const energy = this.calculateEnergy(channelData, startSample, endSample);
+                    const midEnergy = this.getMidFrequencyEnergy(channelData, startSample, endSample);
+                    
+                    if (this.isEnergySpike(energy, i, channelData, chunkSize) && midEnergy > 0.05) {
+                        obstacles.push({
+                            time: timestamp,
+                            type: 'square',
+                            energy: energy
+                        });
+                    }
+                }
+                
+                return obstacles;
+            }
+
+            detectTriangleBeats(channelData, duration) {
+                const obstacles = [];
+                const chunkDuration = 0.08;
+                const chunkSize = Math.floor(this.sampleRate * chunkDuration);
+                const numChunks = Math.floor(channelData.length / chunkSize);
+                
+                for (let i = 0; i < numChunks; i++) {
+                    const startSample = i * chunkSize;
+                    const endSample = Math.min(startSample + chunkSize, channelData.length);
+                    const timestamp = (startSample / this.sampleRate) * 1000;
+                    
+                    const lowEnergy = this.getLowFrequencyEnergy(channelData, startSample, endSample);
+                    const bassHit = this.detectBassHit(channelData, startSample, endSample);
+                    
+                    if (bassHit && lowEnergy > 0.12) {
+                        obstacles.push({
+                            time: timestamp,
+                            type: 'triangle',
+                            energy: lowEnergy
+                        });
+                    }
+                }
+                
+                return obstacles;
+            }
+
+            detectTransient(data, start, end) {
+                let maxChange = 0;
+                for (let i = start + 1; i < end; i++) {
+                    const change = Math.abs(data[i] - data[i - 1]);
+                    maxChange = Math.max(maxChange, change);
+                }
+                return maxChange;
+            }
+
+            detectBassHit(data, start, end) {
+                let sustained = 0;
+                const threshold = 0.1;
+                for (let i = start; i < end; i++) {
+                    if (Math.abs(data[i]) > threshold) sustained++;
+                }
+                return (sustained / (end - start)) > 0.4;
+            }
+
+            getHighFrequencyEnergy(data, start, end) {
+                let sum = 0;
+                for (let i = start; i < end; i += 2) {
+                    sum += Math.abs(data[i]);
+                }
+                return sum / ((end - start) / 2);
+            }
+
+            getMidFrequencyEnergy(data, start, end) {
+                let sum = 0;
+                for (let i = start; i < end; i += 4) {
+                    sum += Math.abs(data[i]);
+                }
+                return sum / ((end - start) / 4);
+            }
+
+            getLowFrequencyEnergy(data, start, end) {
+                let sum = 0;
+                for (let i = start; i < end; i += 8) {
+                    sum += Math.abs(data[i]);
+                }
+                return sum / ((end - start) / 8);
+            }
+
+            calculateEnergy(data, start, end) {
+                let sum = 0;
+                for (let i = start; i < end; i++) {
+                    sum += data[i] * data[i];
+                }
+                return sum / (end - start);
+            }
+
+            isEnergySpike(energy, index, channelData, chunkSize) {
+                const windowSize = 20;
+                const startIdx = Math.max(0, index - windowSize);
+                const endIdx = Math.min(index + windowSize, Math.floor(channelData.length / chunkSize));
+                
+                let avgEnergy = 0;
+                let count = 0;
+                
+                for (let i = startIdx; i < endIdx; i++) {
+                    const chunkStart = i * chunkSize;
+                    const chunkEnd = Math.min(chunkStart + chunkSize, channelData.length);
+                    avgEnergy += this.calculateEnergy(channelData, chunkStart, chunkEnd);
+                    count++;
+                }
+                
+                avgEnergy /= count;
+                return energy > avgEnergy * 1.6 && energy > 0.008;
+            }
+
+            filterObstacles(obstacles) {
+                const filtered = [];
+                const minGap = 250; // Minimum gap between ANY obstacles
+                const minLaserGap = 2500; // MUCH longer gap between lasers (2.5 seconds!)
+                let lastLaserTime = -10000;
+                
+                for (let i = 0; i < obstacles.length; i++) {
+                    const timeSinceLastObstacle = filtered.length === 0 ? Infinity : 
+                        obstacles[i].time - filtered[filtered.length - 1].time;
+                    const timeSinceLastLaser = obstacles[i].time - lastLaserTime;
+                    
+                    // Super strict laser filtering
+                    if (obstacles[i].type === 'laser') {
+                        if (timeSinceLastObstacle >= minGap && timeSinceLastLaser >= minLaserGap) {
+                            filtered.push(obstacles[i]);
+                            lastLaserTime = obstacles[i].time;
+                        }
+                    } else {
+                        if (timeSinceLastObstacle >= minGap) {
+                            filtered.push(obstacles[i]);
+                        }
+                    }
+                }
+                
+                return filtered;
+            }
+        }
+
+        // ==================== DIFFICULTY SETTINGS ====================
+        const DIFFICULTY_CONFIGS = {
+            easy: {
+                name: 'Easy',
+                obstacleSpeedMultiplier: 0.6,
+                spawnRateMultiplier: 0.6,
+                damageMultiplier: 0.7,
+                warningDuration: 2500,
+                playerSpeed: 5
+            },
+            medium: {
+                name: 'Medium',
+                obstacleSpeedMultiplier: 1.0,
+                spawnRateMultiplier: 1.0,
+                damageMultiplier: 1.0,
+                warningDuration: 2000,
+                playerSpeed: 6
+            },
+            hard: {
+                name: 'Hard',
+                obstacleSpeedMultiplier: 1.2,
+                spawnRateMultiplier: 1.3,
+                damageMultiplier: 1.3,
+                warningDuration: 1500,
+                playerSpeed: 7
+            },
+            epic: {
+                name: 'Epic Gamer',
+                obstacleSpeedMultiplier: 1.6,
+                spawnRateMultiplier: 1.6,
+                damageMultiplier: 1.5,
+                warningDuration: 1000,
+                playerSpeed: 8
+            }
+        };
+
+        // ==================== UI RENDERER ====================
+        class UIRenderer {
+            constructor(ctx, canvas) {
+                this.ctx = ctx;
+                this.canvas = canvas;
+            }
+
+            drawButton(x, y, width, height, text, highlighted = false) {
+                this.ctx.save();
+                
+                // Button background
+                if (highlighted) {
+                    const gradient = this.ctx.createLinearGradient(x, y, x, y + height);
+                    gradient.addColorStop(0, 'rgba(102, 126, 234, 0.9)');
+                    gradient.addColorStop(1, 'rgba(118, 75, 162, 0.9)');
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.shadowBlur = 20;
+                    this.ctx.shadowColor = 'rgba(102, 126, 234, 0.6)';
+                } else {
+                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                }
+                
+                this.ctx.fillRect(x, y, width, height);
+                
+                // Button border
+                this.ctx.strokeStyle = highlighted ? '#00ffff' : 'rgba(255, 255, 255, 0.3)';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(x, y, width, height);
+                
+                // Button text
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold ' + Math.floor(height * 0.35) + 'px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(text, x + width / 2, y + height / 2);
+                
+                this.ctx.restore();
+                
+                return { x, y, width, height };
+            }
+
+            drawSlider(x, y, width, height, value, max, label) {
+                this.ctx.save();
+                
+                // Label
+                this.ctx.fillStyle = '#aaa';
+                this.ctx.font = 'bold ' + Math.floor(height * 0.8) + 'px Arial';
+                this.ctx.textAlign = 'left';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(label, x, y + height / 2);
+                
+                const labelWidth = this.ctx.measureText(label).width;
+                const sliderX = x + labelWidth + 20;
+                const sliderWidth = width - labelWidth - 80;
+                
+                // Slider track
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                this.ctx.fillRect(sliderX, y + height / 2 - 3, sliderWidth, 6);
+                
+                // Slider fill
+                const fillWidth = (value / max) * sliderWidth;
+                const gradient = this.ctx.createLinearGradient(sliderX, y, sliderX + fillWidth, y);
+                gradient.addColorStop(0, '#00ffff');
+                gradient.addColorStop(1, '#667eea');
+                this.ctx.fillStyle = gradient;
+                this.ctx.fillRect(sliderX, y + height / 2 - 3, fillWidth, 6);
+                
+                // Slider thumb
+                const thumbX = sliderX + fillWidth;
+                this.ctx.fillStyle = '#00ffff';
+                this.ctx.shadowBlur = 10;
+                this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                this.ctx.beginPath();
+                this.ctx.arc(thumbX, y + height / 2, 9, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Value display
+                this.ctx.shadowBlur = 0;
+                this.ctx.fillStyle = '#00ffff';
+                this.ctx.font = 'bold ' + Math.floor(height * 0.7) + 'px Arial';
+                this.ctx.textAlign = 'right';
+                this.ctx.fillText(Math.round(value) + (label.includes('Volume') ? '%' : ''), 
+                                 x + width, y + height / 2);
+                
+                this.ctx.restore();
+                
+                return { x: sliderX, y: y + height / 2 - 10, width: sliderWidth, height: 20 };
+            }
+
+            isPointInRect(px, py, rect) {
+                return px >= rect.x && px <= rect.x + rect.width &&
+                       py >= rect.y && py <= rect.y + rect.height;
+            }
+        }
+
+        // ==================== GAME ENGINE ====================
+        class RhythmRunner {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.ui = new UIRenderer(this.ctx, canvas);
+                
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+                
+                this.difficulty = 'easy';
+                this.difficultyConfig = DIFFICULTY_CONFIGS.easy;
+                
+                // Initialize player and apply difficulty settings
+                this.player = {
+                    x: 100,
+                    y: 350,
+                    width: 30,
+                    height: 30,
+                    speed: 6,
+                    health: 100,
+                    maxHealth: 100,
+                    isDashing: false,
+                    dashCooldown: 0,
+                    dashDuration: 0,
+                    dashSpeed: 18,
+                    dashMaxCooldown: 2000,
+                    dashMaxDuration: 200,
+                    regenAmount: 3, // REDUCED from 5 to 3
+                    regenInterval: 0
+                };
+                this.setDifficulty(this.difficulty); // FIX BUG #4: Initialize regeneration settings
+                
+                this.obstacles = [];
+                this.obstacleTimestamps = [];
+                this.score = 0;
+                this.dodgedCount = 0;
+                this.gameTime = 0;
+                this.isRunning = false;
+                this.isPaused = false;
+                this.gameStartTime = 0;
+                this.totalPausedTime = 0;
+                this.pauseStartTime = 0;
+                this.finalSurvivalTime = 0;
+                this.healthRegenTimer = 0;
+
+                this.audio = null;
+                this.audioStartTime = 0;
+                this.audioDuration = 0;
+                this.volume = 70;
+                
+                this.currentScreen = 'menu'; // menu, game, pause, gameover, victory
+                this.keys = {};
+                this.mousePos = { x: 0, y: 0 };
+                this.interactiveElements = {};
+                this.isSliderDragging = false;
+                this.pendingAudio = null; // For start button functionality
+                this.pendingObstacles = null; // For start button functionality
+                
+                this.setupInput();
+                this.setupMobileControls();
+            }
+
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.width = this.canvas.width;
+                this.height = this.canvas.height;
+            }
+
+            setDifficulty(difficulty) {
+                this.difficulty = difficulty;
+                this.difficultyConfig = DIFFICULTY_CONFIGS[difficulty];
+                this.player.speed = this.difficultyConfig.playerSpeed;
+                // Set health regeneration intervals based on difficulty
+                if (difficulty === 'easy') {
+                    this.player.regenInterval = 3000; // INCREASED from 2 to 3 seconds
+                } else if (difficulty === 'medium') {
+                    this.player.regenInterval = 7000; // INCREASED from 5 to 7 seconds
+                } else {
+                    this.player.regenInterval = 0; // No regeneration for hard/epic
+                }
+            }
+
+            setupInput() {
+                window.addEventListener('keydown', (e) => {
+                    // FIX BUG #2: Ignore Tab key to prevent permanent movement
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        return;
+                    }
+                    
+                    this.keys[e.key] = true;
+                    
+                    if (e.key === ' ' || e.key === 'Escape') {
+                        e.preventDefault();
+                        if (this.currentScreen === 'game') {
+                            this.togglePause();
+                        }
+                    }
+                    
+                    // DASH activation
+                    if ((e.key === 'Shift' || e.shiftKey) && 
+                        this.currentScreen === 'game' && !this.isPaused) {
+                        e.preventDefault();
+                        this.activateDash();
+                    }
+                });
+                
+                window.addEventListener('keyup', (e) => {
+                    // FIX BUG #2: Make sure Tab key doesn't interfere
+                    if (e.key === 'Tab') {
+                        return;
+                    }
+                    this.keys[e.key] = false;
+                });
+
+                // FIX BUG #1 & #4: Improve pause functionality
+                document.addEventListener('visibilitychange', () => {
+                    if (document.hidden && this.currentScreen === 'game' && !this.isPaused) {
+                        this.togglePause();
+                    }
+                });
+
+                // Mouse/Touch for UI interactions
+                this.canvas.addEventListener('mousemove', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    this.mousePos.x = e.clientX - rect.left;
+                    this.mousePos.y = e.clientY - rect.top;
+                    
+                    // FIX: Smooth slider dragging
+                    if (this.isSliderDragging) {
+                        this.handleSliderDrag(this.mousePos.x, this.mousePos.y);
+                    }
+                });
+
+                this.canvas.addEventListener('click', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    this.handleClick(x, y);
+                });
+
+                this.canvas.addEventListener('mousedown', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    
+                    // Check if clicking on slider to start dragging
+                    if (this.interactiveElements.volumeSlider && this.ui.isPointInRect(x, y, this.interactiveElements.volumeSlider)) {
+                        this.isSliderDragging = 'volume';
+                        this.handleSliderDrag(x, y);
+                    } else if (this.interactiveElements.songSlider && this.ui.isPointInRect(x, y, this.interactiveElements.songSlider)) {
+                        this.isSliderDragging = 'song';
+                        this.handleSliderDrag(x, y);
+                    }
+                });
+
+                this.canvas.addEventListener('mouseup', () => {
+                    this.isSliderDragging = false;
+                });
+
+                this.canvas.addEventListener('mouseleave', () => {
+                    this.isSliderDragging = false;
+                });
+
+                this.canvas.addEventListener('touchstart', (e) => {
+                    if (e.changedTouches.length > 0) {
+                        const rect = this.canvas.getBoundingClientRect();
+                        const touch = e.changedTouches[0];
+                        const x = touch.clientX - rect.left;
+                        const y = touch.clientY - rect.top;
+                        this.handleClick(x, y);
+                    }
+                });
+
+                this.canvas.addEventListener('touchend', (e) => {
+                    if (e.changedTouches.length > 0) {
+                        const rect = this.canvas.getBoundingClientRect();
+                        const touch = e.changedTouches[0];
+                        const x = touch.clientX - rect.left;
+                        const y = touch.clientY - rect.top;
+                        this.handleClick(x, y);
+                    }
+                });
+            }
+
+            handleSliderDrag(x, y) {
+                if (this.isSliderDragging === 'volume' && this.interactiveElements.volumeSlider) {
+                    const percent = Math.max(0, Math.min(1, (x - this.interactiveElements.volumeSlider.x) / this.interactiveElements.volumeSlider.width));
+                    this.volume = percent * 100;
+                    if (this.audio) {
+                        this.audio.volume = this.volume / 100;
+                    }
+                } else if (this.isSliderDragging === 'song' && this.interactiveElements.songSlider && this.audioDuration > 0) {
+                    const percent = Math.max(0, Math.min(1, (x - this.interactiveElements.songSlider.x) / this.interactiveElements.songSlider.width));
+                    const seekTime = percent * this.audioDuration;
+                    if (this.audio) {
+                        this.audio.currentTime = seekTime;
+                        // FIX BUG #1: Adjust pause timing correctly
+                        this.audioStartTime = Date.now() - (seekTime * 1000) - this.totalPausedTime;
+                    }
+                }
+            }
+
+            handleClick(x, y) {
+                const el = this.interactiveElements;
+                
+                // Check buttons
+                for (let key in el) {
+                    if (el[key] && el[key].type === 'button' && 
+                        this.ui.isPointInRect(x, y, el[key])) {
+                        el[key].callback();
+                        return;
+                    }
+                }
+            }
+
+            activateDash() {
+                if (this.player.dashCooldown <= 0 && !this.player.isDashing) {
+                    this.player.isDashing = true;
+                    this.player.dashDuration = this.player.dashMaxDuration;
+                    this.player.dashCooldown = this.player.dashMaxCooldown;
+                }
+            }
+
+            setupMobileControls() {
+                const upBtn = document.getElementById('upBtn');
+                const downBtn = document.getElementById('downBtn');
+                const leftBtn = document.getElementById('leftBtn');
+                const rightBtn = document.getElementById('rightBtn');
+                const dashBtn = document.getElementById('dashBtn');
+                const pauseBtn = document.getElementById('pauseBtn');
+                
+                upBtn.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowUp'] = true;
+                });
+                upBtn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowUp'] = false;
+                });
+                
+                downBtn.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowDown'] = true;
+                });
+                downBtn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowDown'] = false;
+                });
+                
+                leftBtn.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowLeft'] = true;
+                });
+                leftBtn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowLeft'] = false;
+                });
+                
+                rightBtn.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowRight'] = true;
+                });
+                rightBtn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.keys['ArrowRight'] = false;
+                });
+                
+                dashBtn.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.activateDash();
+                });
+                
+                pauseBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (this.currentScreen === 'game') {
+                        this.togglePause();
+                    }
+                });
+            }
+
+            loadObstacles(timestamps) {
+                const filtered = [];
+                const rate = this.difficultyConfig.spawnRateMultiplier;
+                
+                for (let i = 0; i < timestamps.length; i++) {
+                    if (Math.random() < rate || rate >= 1.0) {
+                        filtered.push(timestamps[i]);
+                    } else if (i % Math.ceil(1 / rate) === 0) {
+                        filtered.push(timestamps[i]);
+                    }
+                }
+                
+                this.obstacleTimestamps = filtered.sort((a, b) => a.time - b.time);
+            }
+
+            start(audio) {
+                this.audio = audio;
+                this.audioDuration = audio.duration;
+                this.audio.volume = this.volume / 100;
+                
+                // Set up audio analyser for dynamic background
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.audioAnalyser = this.audioContext.createAnalyser();
+                    this.audioAnalyser.fftSize = 256;
+                    this.audioAnalyser.smoothingTimeConstant = 0.8;
+                    
+                    const source = this.audioContext.createMediaElementSource(audio);
+                    source.connect(this.audioAnalyser);
+                    this.audioAnalyser.connect(this.audioContext.destination);
+                } catch (e) {
+                    console.warn('Audio analyser setup failed:', e);
+                    this.audioAnalyser = null;
+                }
+                
+                this.isRunning = true;
+                this.currentScreen = 'game';
+                this.gameStartTime = Date.now();
+                this.audioStartTime = Date.now();
+                this.totalPausedTime = 0;
+                this.pauseStartTime = 0;
+                this.healthRegenTimer = 0; // Reset regen timer on game start
+                this.audio.play();
+                this.gameLoop();
+            }
+
+            startPendingGame() {
+                if (this.pendingAudio && this.pendingObstacles) {
+                    this.loadObstacles([...this.pendingObstacles]);
+                    this.start(this.pendingAudio);
+                    // Clear pending data
+                    this.pendingAudio = null;
+                    this.pendingObstacles = null;
+                    this.statusMessage = '';
+                }
+            }
+
+            formatTime(seconds) {
+                // FIX BUG #3: Handle NaN and undefined values
+                if (!seconds || isNaN(seconds) || seconds < 0) {
+                    return '0:00';
+                }
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return mins + ':' + (secs < 10 ? '0' : '') + secs;
+            }
+
+            togglePause() {
+                if (!this.isRunning) return;
+                
+                this.isPaused = !this.isPaused;
+                this.currentScreen = this.isPaused ? 'pause' : 'game';
+                
+                if (this.isPaused) {
+                    // FIX BUG #1: Track pause time properly
+                    this.pauseStartTime = Date.now();
+                    this.audio.pause();
+                } else {
+                    // FIX BUG #1: Calculate total paused time correctly
+                    if (this.pauseStartTime > 0) {
+                        this.totalPausedTime += Date.now() - this.pauseStartTime;
+                        this.pauseStartTime = 0;
+                    }
+                    this.audio.play();
+                }
+            }
+
+            spawnObstacle(timestamp) {
+                const config = this.difficultyConfig;
+                const obstacle = {
+                    type: timestamp.type,
+                    x: this.width,
+                    y: 0,
+                    width: 0,
+                    height: 0,
+                    speed: 0,
+                    damage: Math.round(10 * config.damageMultiplier),
+                    isActive: false,
+                    activateTime: 0,
+                    warningDuration: config.warningDuration
+                };
+
+                switch (timestamp.type) {
+                    case 'laser':
+                        obstacle.width = 8;
+                        obstacle.height = this.height;
+                        obstacle.x = 0; // FIX: Set x to 0 for vertical lasers
+                        obstacle.y = 0;
+                        obstacle.isVertical = Math.random() > 0.4;
+                        
+                        if (!obstacle.isVertical) {
+                            obstacle.width = this.width;
+                            obstacle.height = 8;
+                            obstacle.y = Math.random() * (this.height - 150) + 75;
+                            obstacle.x = 0; // FIX: Set x to 0 for horizontal lasers too
+                        }
+                        obstacle.damage = Math.round(15 * config.damageMultiplier);
+                        break;
+                    
+                    case 'square':
+                        obstacle.width = 40;
+                        obstacle.height = 40;
+                        // Prevent corner camping by avoiding top/bottom 60px
+                        const minY = 60;
+                        const maxY = this.height - obstacle.height - 60;
+                        obstacle.y = minY + Math.random() * (maxY - minY);
+                        obstacle.speed = (4 + Math.random() * 2) * config.obstacleSpeedMultiplier;
+                        break;
+                    
+                    case 'triangle':
+                        obstacle.width = 50;
+                        obstacle.height = 50;
+                        // Prevent corner camping by avoiding top/bottom 50px
+                        const triMinY = 50;
+                        const triMaxY = this.height - obstacle.height - 50;
+                        obstacle.y = triMinY + Math.random() * (triMaxY - triMinY);
+                        obstacle.speed = 3.5 * config.obstacleSpeedMultiplier;
+                        obstacle.curveDirection = Math.random() > 0.5 ? 1 : -1;
+                        obstacle.curveAmount = 0;
+                        obstacle.curveSpeed = 0.04 + Math.random() * 0.03;
+                        break;
+                }
+
+                obstacle.activateTime = this.gameTime + obstacle.warningDuration;
+                this.obstacles.push(obstacle);
+            }
+
+            update() {
+                if (!this.isRunning) return;
+
+                // FIX BUG #3: Pause game updates when paused
+                if (this.isPaused) return;
+
+                // FIX BUG #1: Account for total paused time in game timing
+                this.gameTime = Date.now() - this.audioStartTime - this.totalPausedTime;
+                
+                if (this.audio.ended) {
+                    this.victory();
+                    return;
+                }
+                
+                while (this.obstacleTimestamps.length > 0 && 
+                       this.obstacleTimestamps[0].time <= this.gameTime) {
+                    this.spawnObstacle(this.obstacleTimestamps.shift());
+                }
+                
+                // FIXED DASH MECHANICS - clean state management
+                if (this.player.isDashing) {
+                    this.player.dashDuration -= 16;
+                    if (this.player.dashDuration <= 0) {
+                        this.player.isDashing = false;
+                        this.player.dashDuration = 0; // Clean reset
+                    }
+                }
+                
+                if (this.player.dashCooldown > 0) {
+                    this.player.dashCooldown = Math.max(0, this.player.dashCooldown - 16);
+                }
+                
+                // HEALTH REGENERATION - Auto-heal based on difficulty
+                if (this.player.regenInterval > 0 && this.player.health < this.player.maxHealth) {
+                    this.healthRegenTimer += 16; // Assuming ~60fps, 16ms per frame
+                    if (this.healthRegenTimer >= this.player.regenInterval) {
+                        this.player.health = Math.min(this.player.maxHealth, 
+                                                     this.player.health + this.player.regenAmount);
+                        this.healthRegenTimer = 0; // Reset timer
+                    }
+                }
+                
+                // PLAYER MOVEMENT - calculate speed per frame
+                const currentSpeed = this.player.isDashing ? this.player.dashSpeed : this.player.speed;
+                
+                if (this.keys['ArrowUp'] || this.keys['w'] || this.keys['W']) {
+                    this.player.y = Math.max(0, this.player.y - currentSpeed);
+                }
+                if (this.keys['ArrowDown'] || this.keys['s'] || this.keys['S']) {
+                    this.player.y = Math.min(this.height - this.player.height, 
+                                            this.player.y + currentSpeed);
+                }
+                if (this.keys['ArrowLeft'] || this.keys['a'] || this.keys['A']) {
+                    this.player.x = Math.max(0, this.player.x - currentSpeed);
+                }
+                if (this.keys['ArrowRight'] || this.keys['d'] || this.keys['D']) {
+                    this.player.x = Math.min(this.width - this.player.width, 
+                                            this.player.x + currentSpeed);
+                }
+                
+                // FIX BUG #4: Update obstacles with proper off-screen removal
+                for (let i = this.obstacles.length - 1; i >= 0; i--) {
+                    const obs = this.obstacles[i];
+                    
+                    if (!obs.isActive && this.gameTime >= obs.activateTime) {
+                        obs.isActive = true;
+                    }
+                    
+                    if (obs.type === 'square') {
+                        obs.x -= obs.speed;
+                    } else if (obs.type === 'triangle') {
+                        obs.x -= obs.speed;
+                        obs.curveAmount += obs.curveSpeed;
+                        obs.y += Math.sin(obs.curveAmount) * obs.curveDirection * 3;
+                        obs.y = Math.max(0, Math.min(this.height - obs.height, obs.y));
+                    }
+                    // FIX BUG #4: Lasers don't move, but we need to check if they're still active
+                    
+                    // COLLISION with DASH INVINCIBILITY (check both active and warning phases)
+                    if (!this.player.isDashing && this.checkCollision(this.player, obs)) {
+                        // FIX: Gray (warning) obstacles do 0.25 damage, active obstacles do full damage
+                        const damageMultiplier = obs.isActive ? 1.0 : 0.25;
+                        this.player.health = Math.max(0, this.player.health - (obs.damage * damageMultiplier));
+                        this.obstacles.splice(i, 1);
+                        
+                        if (this.player.health <= 0) {
+                            this.gameOver();
+                        }
+                        continue;
+                    }
+                    
+                    // Destroy obstacle if dashing through it
+                    if (obs.isActive && this.player.isDashing && this.checkCollision(this.player, obs)) {
+                        this.obstacles.splice(i, 1);
+                        this.score += 25;
+                        this.dodgedCount++;
+                        continue;
+                    }
+                    
+                    // FIX BUG #4: Remove obstacles that are off-screen or inactive for too long
+                    let shouldRemove = false;
+                    
+                    if (obs.type === 'square' || obs.type === 'triangle') {
+                        if (obs.x < -100) {
+                            shouldRemove = true;
+                        }
+                    } else if (obs.type === 'laser') {
+                        // For lasers, remove them after they've been active for a reasonable time
+                        const laserActiveTime = this.gameTime - obs.activateTime;
+                        if (laserActiveTime > 3000) { // Remove after 3 seconds of being active
+                            shouldRemove = true;
+                        }
+                    }
+                    
+                    if (shouldRemove) {
+                        this.obstacles.splice(i, 1);
+                        this.score += 10;
+                        this.dodgedCount++;
+                    }
+                }
+            }
+
+            checkCollision(player, obstacle) {
+                return player.x < obstacle.x + obstacle.width &&
+                       player.x + player.width > obstacle.x &&
+                       player.y < obstacle.y + obstacle.height &&
+                       player.y + player.height > obstacle.y;
+            }
+
+            draw() {
+                this.ctx.fillStyle = '#0a0a1a';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+                
+                this.interactiveElements = {}; // Reset each frame
+                
+                if (this.currentScreen === 'menu') {
+                    this.drawMenuScreen();
+                } else if (this.currentScreen === 'game') {
+                    this.drawGameScreen();
+                } else if (this.currentScreen === 'pause') {
+                    this.drawPauseScreen();
+                } else if (this.currentScreen === 'gameover') {
+                    this.drawGameOverScreen();
+                } else if (this.currentScreen === 'victory') {
+                    this.drawVictoryScreen();
+                }
+            }
+
+            drawMenuScreen() {
+                const centerX = this.width / 2;
+                const centerY = this.height / 2;
+                
+                // Title
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold ' + Math.floor(this.height * 0.08) + 'px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.shadowBlur = 20;
+                this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                this.ctx.fillText('🎵 RHYTHM OBSTACLE RUNNER', centerX, this.height * 0.2);
+                
+                this.ctx.shadowBlur = 0;
+                this.ctx.font = Math.floor(this.height * 0.03) + 'px Arial';
+                this.ctx.fillStyle = '#aaa';
+                this.ctx.fillText('Load a song and dodge AI-generated obstacles!', 
+                                 centerX, this.height * 0.28);
+                
+                // Difficulty selection
+                const diffLabel = 'Select Difficulty:';
+                this.ctx.fillStyle = '#00ffff';
+                this.ctx.font = 'bold ' + Math.floor(this.height * 0.035) + 'px Arial';
+                this.ctx.fillText(diffLabel, centerX, this.height * 0.38);
+                
+                const difficulties = ['easy', 'medium', 'hard', 'epic'];
+                const diffNames = ['Easy', 'Medium', 'Hard', 'Epic Gamer'];
+                const buttonWidth = Math.min(180, this.width * 0.12);
+                const buttonHeight = Math.floor(this.height * 0.06);
+                const spacing = buttonWidth + 20;
+                const startX = centerX - (spacing * 2);
+                
+                for (let i = 0; i < difficulties.length; i++) {
+                    const x = startX + (i * spacing);
+                    const y = this.height * 0.43;
+                    const highlighted = this.difficulty === difficulties[i];
+                    
+                    const btn = this.ui.drawButton(x, y, buttonWidth, buttonHeight, 
+                                                   diffNames[i], highlighted);
+                    this.interactiveElements['diff_' + i] = {
+                        ...btn,
+                        type: 'button',
+                        callback: () => this.setDifficulty(difficulties[i])
+                    };
+                }
+                
+                // Choose file button
+                const fileBtn = this.ui.drawButton(centerX - 150, this.height * 0.58, 300, 60, 
+                                                   '🎵 Choose Music File', false);
+                this.interactiveElements.fileBtn = {
+                    ...fileBtn,
+                    type: 'button',
+                    callback: () => this.openFileDialog()
+                };
+                
+                // Start Run button (show when audio is ready)
+                if (this.pendingAudio && this.pendingObstacles) {
+                    const startBtn = this.ui.drawButton(centerX - 120, this.height * 0.68, 240, 60, 
+                                                       '▶️ Start Run!', false);
+                    this.interactiveElements.startBtn = {
+                        ...startBtn,
+                        type: 'button',
+                        callback: () => this.startPendingGame()
+                    };
+                }
+                
+                // Status message
+                if (this.statusMessage) {
+                    this.ctx.fillStyle = this.statusColor || '#00ffff';
+                    this.ctx.font = Math.floor(this.height * 0.025) + 'px Arial';
+                    this.ctx.fillText(this.statusMessage, centerX, this.height * 0.8);
+                    
+                    // Progress bar
+                    if (this.loadingProgress !== undefined) {
+                        const barWidth = 400;
+                        const barHeight = 8;
+                        const barX = centerX - barWidth / 2;
+                        const barY = this.height * 0.76;
+                        
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                        this.ctx.fillRect(barX, barY, barWidth, barHeight);
+                        
+                        const gradient = this.ctx.createLinearGradient(barX, barY, 
+                                                                      barX + barWidth * this.loadingProgress, barY);
+                        gradient.addColorStop(0, '#00ffff');
+                        gradient.addColorStop(1, '#667eea');
+                        this.ctx.fillStyle = gradient;
+                        this.ctx.fillRect(barX, barY, barWidth * this.loadingProgress, barHeight);
+                    }
+                }
+                
+                // Controls
+                this.ctx.fillStyle = '#666';
+                this.ctx.font = Math.floor(this.height * 0.02) + 'px Arial';
+                this.ctx.fillText('Arrow Keys/WASD: Move | Shift: Dash | Space: Pause', 
+                                 centerX, this.height * 0.9);
+            }
+
+            drawGameScreen() {
+                this.drawDynamicBackground(); // Dynamic background that responds to music
+                this.drawGrid();
+                this.drawObstacles();
+                this.drawPlayer();
+                this.drawGameHUD();
+            }
+
+            drawGrid() {
+                this.ctx.strokeStyle = 'rgba(0, 255, 255, 0.08)';
+                this.ctx.lineWidth = 1;
+                
+                const gridSize = 50;
+                for (let x = 0; x < this.width; x += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, this.height);
+                    this.ctx.stroke();
+                }
+                
+                for (let y = 0; y < this.height; y += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.width, y);
+                    this.ctx.stroke();
+                }
+            }
+
+            drawObstacles() {
+                this.obstacles.forEach(obs => {
+                    const isWarning = !obs.isActive;
+                    const warningProgress = 1 - ((obs.activateTime - this.gameTime) / obs.warningDuration);
+                    const alpha = isWarning ? (0.2 + warningProgress * 0.3) : 1.0;
+                    
+                    this.ctx.save();
+                    this.ctx.globalAlpha = alpha;
+                    
+                    if (obs.type === 'laser') {
+                        const gradient = isWarning ? 
+                            this.ctx.createLinearGradient(obs.x, obs.y, obs.x + obs.width, obs.y + obs.height) :
+                            this.ctx.createLinearGradient(obs.x, obs.y, obs.x + obs.width, obs.y + obs.height);
+                        
+                        if (isWarning) {
+                            gradient.addColorStop(0, '#ffff00');
+                            gradient.addColorStop(1, '#ffaa00');
+                        } else {
+                            gradient.addColorStop(0, '#ff0000');
+                            gradient.addColorStop(0.5, '#ff6600');
+                            gradient.addColorStop(1, '#ff0000');
+                            this.ctx.shadowBlur = 25;
+                            this.ctx.shadowColor = '#ff0000';
+                        }
+                        
+                        this.ctx.fillStyle = gradient;
+                        this.ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    } 
+                    else if (obs.type === 'square') {
+                        this.ctx.fillStyle = isWarning ? '#666666' : '#00ffff';
+                        this.ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                        
+                        if (!isWarning) {
+                            this.ctx.shadowBlur = 15;
+                            this.ctx.shadowColor = '#00ffff';
+                            this.ctx.strokeStyle = '#ffffff';
+                            this.ctx.lineWidth = 3;
+                            this.ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+                        }
+                    } 
+                    else if (obs.type === 'triangle') {
+                        this.ctx.fillStyle = isWarning ? '#666666' : '#ff00ff';
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(obs.x + obs.width / 2, obs.y);
+                        this.ctx.lineTo(obs.x, obs.y + obs.height);
+                        this.ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+                        this.ctx.closePath();
+                        this.ctx.fill();
+                        
+                        if (!isWarning) {
+                            this.ctx.shadowBlur = 15;
+                            this.ctx.shadowColor = '#ff00ff';
+                            this.ctx.strokeStyle = '#ffffff';
+                            this.ctx.lineWidth = 3;
+                            this.ctx.stroke();
+                        }
+                    }
+                    
+                    this.ctx.restore();
+                });
+            }
+
+            drawDynamicBackground() {
+                if (!this.audio) return;
+                
+                // Get audio frequency data for dynamic visualization
+                const analyser = this.audioAnalyser;
+                if (!analyser) return;
+                
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                analyser.getByteFrequencyData(dataArray);
+                
+                // Calculate average volume for background intensity
+                let sum = 0;
+                for (let i = 0; i < Math.min(32, bufferLength); i++) {
+                    sum += dataArray[i];
+                }
+                const averageVolume = sum / Math.min(32, bufferLength);
+                const intensity = averageVolume / 255; // 0 to 1
+                
+                // Base background with animated colors based on music
+                const hue1 = (Date.now() * 0.02 + intensity * 180) % 360;
+                const hue2 = (hue1 + 60) % 360;
+                const brightness = 0.1 + (intensity * 0.3);
+                
+                // Create dynamic gradient background
+                const gradient = this.ctx.createLinearGradient(0, 0, this.width, this.height);
+                gradient.addColorStop(0, `hsla(${hue1}, 70%, ${brightness * 100}%, 0.3)`);
+                gradient.addColorStop(0.5, `hsla(${hue2}, 80%, ${brightness * 50}%, 0.2)`);
+                gradient.addColorStop(1, `hsla(${(hue1 + 180) % 360}, 60%, ${brightness * 30}%, 0.3)`);
+                
+                this.ctx.fillStyle = gradient;
+                this.ctx.fillRect(0, 0, this.width, this.height);
+                
+                // Add frequency bars in background for visual effect
+                const barCount = 8;
+                const barWidth = this.width / barCount;
+                for (let i = 0; i < barCount; i++) {
+                    const freqIndex = Math.floor((i / barCount) * bufferLength);
+                    const barHeight = (dataArray[freqIndex] / 255) * this.height * 0.3;
+                    
+                    const hue = (hue1 + (i / barCount) * 120) % 360;
+                    this.ctx.fillStyle = `hsla(${hue}, 60%, ${20 + intensity * 30}%, 0.1)`;
+                    this.ctx.fillRect(i * barWidth, this.height - barHeight, barWidth - 2, barHeight);
+                }
+                
+                // Pulsing overlay based on bass frequencies
+                const bassSum = dataArray.slice(0, 4).reduce((a, b) => a + b, 0) / (4 * 255);
+                if (bassSum > 0.1) {
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${bassSum * 0.05})`;
+                    this.ctx.fillRect(0, 0, this.width, this.height);
+                }
+            }
+
+            drawPlayer() {
+                this.ctx.save();
+                
+                if (this.player.isDashing) {
+                    this.ctx.fillStyle = '#ffff00';
+                    this.ctx.shadowBlur = 40;
+                    this.ctx.shadowColor = '#ffff00';
+                    
+                    // Dash trail
+                    for (let i = 1; i <= 3; i++) {
+                        this.ctx.globalAlpha = 0.3 / i;
+                        this.ctx.fillRect(this.player.x - (i * 10), this.player.y, 
+                                         this.player.width, this.player.height);
+                    }
+                    this.ctx.globalAlpha = 1.0;
+                } else {
+                    this.ctx.fillStyle = '#00ff00';
+                    this.ctx.shadowBlur = 20;
+                    this.ctx.shadowColor = '#00ff00';
+                }
+                
+                this.ctx.fillRect(this.player.x, this.player.y, 
+                                 this.player.width, this.player.height);
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(this.player.x, this.player.y, 
+                                   this.player.width, this.player.height);
+                this.ctx.restore();
+            }
+
+            drawGameHUD() {
+                const padding = 20;
+                const hudAlpha = 0.9;
+                
+                this.ctx.save();
+                this.ctx.globalAlpha = hudAlpha;
+                
+                // Song progress bar (top-center)
+                if (this.audio && this.audioDuration > 0) {
+                    const songProgressBarWidth = Math.min(600, this.width * 0.6);
+                    const songProgressBarHeight = 25;
+                    const songProgressX = (this.width - songProgressBarWidth) / 2;
+                    const songProgressY = padding;
+                    
+                    // Background
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    this.ctx.fillRect(songProgressX - 5, songProgressY - 5, songProgressBarWidth + 10, songProgressBarHeight + 30);
+                    
+                    // Progress bar background
+                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                    this.ctx.fillRect(songProgressX, songProgressY, songProgressBarWidth, songProgressBarHeight);
+                    
+                    // Progress fill
+                    const currentTime = this.audio.currentTime || 0;
+                    const progressPercent = currentTime / this.audioDuration;
+                    const progressWidth = songProgressBarWidth * progressPercent;
+                    
+                    const gradient = this.ctx.createLinearGradient(songProgressX, songProgressY, 
+                                                                   songProgressX + progressWidth, songProgressY);
+                    gradient.addColorStop(0, '#ff6b6b');
+                    gradient.addColorStop(0.5, '#ffd93d');
+                    gradient.addColorStop(1, '#6bcf7f');
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fillRect(songProgressX, songProgressY, progressWidth, songProgressBarHeight);
+                    
+                    // Border
+                    this.ctx.strokeStyle = '#ffffff';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(songProgressX, songProgressY, songProgressBarWidth, songProgressBarHeight);
+                    
+                    // Time text
+                    this.ctx.fillStyle = '#ffffff';
+                    this.ctx.font = 'bold 14px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    const currentTimeText = this.formatTime(currentTime);
+                    const totalTimeText = this.formatTime(this.audioDuration);
+                    this.ctx.fillText(`${currentTimeText} / ${totalTimeText}`, 
+                                     songProgressX + songProgressBarWidth / 2, 
+                                     songProgressY + songProgressBarHeight + 15);
+                }
+                
+                // Health bar (top-left)
+                const healthBarWidth = 250;
+                const healthBarHeight = 30;
+                
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                this.ctx.fillRect(padding - 5, padding - 5, healthBarWidth + 10, healthBarHeight + 10);
+                
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                this.ctx.fillRect(padding, padding, healthBarWidth, healthBarHeight);
+                
+                const healthWidth = (this.player.health / this.player.maxHealth) * healthBarWidth;
+                const gradient = this.ctx.createLinearGradient(padding, padding, padding + healthWidth, padding);
+                
+                if (this.player.health > 50) {
+                    gradient.addColorStop(0, '#00ff00');
+                    gradient.addColorStop(1, '#00cc00');
+                } else if (this.player.health > 25) {
+                    gradient.addColorStop(0, '#ffff00');
+                    gradient.addColorStop(1, '#ff8800');
+                } else {
+                    gradient.addColorStop(0, '#ff0000');
+                    gradient.addColorStop(1, '#cc0000');
+                }
+                
+                this.ctx.fillStyle = gradient;
+                this.ctx.fillRect(padding, padding, healthWidth, healthBarHeight);
+                
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(padding, padding, healthBarWidth, healthBarHeight);
+                
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold 16px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(Math.round(this.player.health) + ' HP', 
+                                 padding + healthBarWidth / 2, padding + healthBarHeight / 2);
+                
+                // Score and stats (top-right)
+                const statsX = this.width - padding;
+                const fontSize = 20;
+                this.ctx.font = 'bold ' + fontSize + 'px Arial';
+                this.ctx.textAlign = 'right';
+                this.ctx.textBaseline = 'top';
+                
+                this.ctx.fillStyle = '#00ffff';
+                this.ctx.fillText('Score: ' + this.score, statsX, padding);
+                this.ctx.fillText('Dodged: ' + this.dodgedCount, statsX, padding + fontSize + 5);
+                this.ctx.fillText('Difficulty: ' + this.difficultyConfig.name, statsX, padding + (fontSize + 5) * 2);
+                
+                // Dash status (bottom-center)
+                const dashBarWidth = 200;
+                const dashBarHeight = 15;
+                const dashX = (this.width - dashBarWidth) / 2;
+                const dashY = this.height - 80;
+                
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                this.ctx.fillRect(dashX - 5, dashY - 25, dashBarWidth + 10, 55);
+                
+                let dashText = 'Ready!';
+                let dashColor = '#00ff00';
+                let dashPercent = 1.0;
+                
+                if (this.player.isDashing) {
+                    dashText = 'DASHING!';
+                    dashColor = '#ffff00';
+                    dashPercent = this.player.dashDuration / this.player.dashMaxDuration;
+                } else if (this.player.dashCooldown > 0) {
+                    dashText = 'Cooldown';
+                    dashColor = '#ff8800';
+                    dashPercent = 1.0 - (this.player.dashCooldown / this.player.dashMaxCooldown);
+                }
+                
+                this.ctx.fillStyle = dashColor;
+                this.ctx.font = 'bold 14px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('Dash: ' + dashText, dashX + dashBarWidth / 2, dashY - 10);
+                
+                // Dash bar
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                this.ctx.fillRect(dashX, dashY, dashBarWidth, dashBarHeight);
+                
+                const dashGradient = this.ctx.createLinearGradient(dashX, dashY, 
+                                                                   dashX + dashBarWidth * dashPercent, dashY);
+                dashGradient.addColorStop(0, '#00ffff');
+                dashGradient.addColorStop(1, '#00ccff');
+                this.ctx.fillStyle = dashGradient;
+                this.ctx.fillRect(dashX, dashY, dashBarWidth * dashPercent, dashBarHeight);
+                
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(dashX, dashY, dashBarWidth, dashBarHeight);
+                
+                this.ctx.restore();
+            }
+
+            drawPauseScreen() {
+                // Draw game in background (dimmed)
+                this.ctx.save();
+                this.ctx.globalAlpha = 0.3;
+                this.drawGrid();
+                this.drawObstacles();
+                this.drawPlayer();
+                this.ctx.restore();
+                
+                // Pause overlay
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+                
+                const centerX = this.width / 2;
+                const centerY = this.height / 2;
+                
+                // Pause panel
+                const panelWidth = Math.min(600, this.width * 0.8);
+                const panelHeight = Math.min(500, this.height * 0.7);
+                const panelX = centerX - panelWidth / 2;
+                const panelY = centerY - panelHeight / 2;
+                
+                this.ctx.fillStyle = 'rgba(26, 26, 46, 0.95)';
+                this.ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+                this.ctx.strokeStyle = '#00ffff';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+                
+                // Title
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold ' + Math.floor(panelHeight * 0.12) + 'px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('⏸ PAUSED', centerX, panelY + panelHeight * 0.15);
+                
+                // Volume slider
+                const sliderY = panelY + panelHeight * 0.35;
+                this.interactiveElements.volumeSlider = this.ui.drawSlider(
+                    panelX + 40, sliderY, panelWidth - 80, 30, 
+                    this.volume, 100, 'Volume:'
+                );
+                
+                // Resume button
+                const resumeBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.5, 
+                                                     240, 50, 'Resume', false);
+                this.interactiveElements.resumeBtn = {
+                    ...resumeBtn,
+                    type: 'button',
+                    callback: () => this.togglePause()
+                };
+                
+                // Return to menu button
+                const menuBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.64, 
+                                                   240, 50, 'Return to Menu', false);
+                this.interactiveElements.menuBtn = {
+                    ...menuBtn,
+                    type: 'button',
+                    callback: () => this.returnToMenu()
+                };
+            }
+
+            drawGameOverScreen() {
+                // Dark overlay
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+                
+                const centerX = this.width / 2;
+                const centerY = this.height / 2;
+                
+                // Panel
+                const panelWidth = Math.min(500, this.width * 0.8);
+                const panelHeight = Math.min(450, this.height * 0.7);
+                const panelX = centerX - panelWidth / 2;
+                const panelY = centerY - panelHeight / 2;
+                
+                this.ctx.fillStyle = 'rgba(26, 26, 46, 0.95)';
+                this.ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+                this.ctx.strokeStyle = '#ff0000';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+                
+                // Title
+                this.ctx.fillStyle = '#ff0000';
+                this.ctx.font = 'bold ' + Math.floor(panelHeight * 0.12) + 'px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('💀 GAME OVER', centerX, panelY + panelHeight * 0.15);
+                
+                // Stats
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = Math.floor(panelHeight * 0.06) + 'px Arial';
+                const statsY = panelY + panelHeight * 0.35;
+                const lineHeight = panelHeight * 0.08;
+                
+                this.ctx.fillText('Final Score: ' + this.score, centerX, statsY);
+                this.ctx.fillText('Obstacles Dodged: ' + this.dodgedCount, centerX, statsY + lineHeight);
+                this.ctx.fillText('Survival Time: ' + this.formatTime(this.finalSurvivalTime), 
+                                 centerX, statsY + lineHeight * 2);
+                
+                // Buttons
+                const tryBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.68, 
+                                                  240, 50, 'Try Again', false);
+                this.interactiveElements.tryBtn = {
+                    ...tryBtn,
+                    type: 'button',
+                    callback: () => this.restartGame()
+                };
+                
+                const menuBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.82, 
+                                                   240, 50, 'Choose New Song', false);
+                this.interactiveElements.menuBtn2 = {
+                    ...menuBtn,
+                    type: 'button',
+                    callback: () => this.returnToMenu()
+                };
+            }
+
+            drawVictoryScreen() {
+                // Bright overlay
+                this.ctx.fillStyle = 'rgba(0, 50, 0, 0.85)';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+                
+                const centerX = this.width / 2;
+                const centerY = this.height / 2;
+                
+                // Panel
+                const panelWidth = Math.min(500, this.width * 0.8);
+                const panelHeight = Math.min(500, this.height * 0.7);
+                const panelX = centerX - panelWidth / 2;
+                const panelY = centerY - panelHeight / 2;
+                
+                this.ctx.fillStyle = 'rgba(26, 46, 26, 0.95)';
+                this.ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+                this.ctx.strokeStyle = '#00ff00';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+                
+                // Title
+                this.ctx.fillStyle = '#00ff00';
+                this.ctx.font = 'bold ' + Math.floor(panelHeight * 0.12) + 'px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('🏆 VICTORY!', centerX, panelY + panelHeight * 0.15);
+                
+                // Stats
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = Math.floor(panelHeight * 0.06) + 'px Arial';
+                const statsY = panelY + panelHeight * 0.35;
+                const lineHeight = panelHeight * 0.08;
+                
+                this.ctx.fillText('Final Score: ' + this.score, centerX, statsY);
+                this.ctx.fillText('Obstacles Dodged: ' + this.dodgedCount, centerX, statsY + lineHeight);
+                this.ctx.fillText('Survival Time: ' + this.formatTime(this.finalSurvivalTime), 
+                                 centerX, statsY + lineHeight * 2);
+                this.ctx.fillText('Health Remaining: ' + Math.round(this.player.health), 
+                                 centerX, statsY + lineHeight * 3);
+                
+                if (this.player.health === 100) {
+                    this.ctx.fillStyle = '#ffff00';
+                    this.ctx.font = 'bold ' + Math.floor(panelHeight * 0.08) + 'px Arial';
+                    this.ctx.fillText('⭐ PERFECT RUN! ⭐', centerX, statsY + lineHeight * 4);
+                }
+                
+                // Buttons
+                const againBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.72, 
+                                                    240, 50, 'Play Again', false);
+                this.interactiveElements.againBtn = {
+                    ...againBtn,
+                    type: 'button',
+                    callback: () => this.restartGame()
+                };
+                
+                const menuBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.84, 
+                                                   240, 50, 'Choose New Song', false);
+                this.interactiveElements.menuBtn3 = {
+                    ...menuBtn,
+                    type: 'button',
+                    callback: () => this.returnToMenu()
+                };
+            }
+
+            gameLoop() {
+                this.update();
+                this.draw();
+                requestAnimationFrame(() => this.gameLoop());
+            }
+
+            gameOver() {
+                this.isRunning = false;
+                this.currentScreen = 'gameover';
+                this.audio.pause();
+                // FIX: Store final survival time to stop counting
+                this.finalSurvivalTime = (Date.now() - this.gameStartTime - this.totalPausedTime) / 1000;
+            }
+
+            victory() {
+                this.isRunning = false;
+                this.currentScreen = 'victory';
+                this.audio.pause();
+                // FIX: Store final survival time to stop counting
+                this.finalSurvivalTime = (Date.now() - this.gameStartTime - this.totalPausedTime) / 1000;
+            }
+
+            reset() {
+                this.player.x = 100;
+                this.player.y = this.height / 2;
+                this.player.health = 100;
+                this.player.isDashing = false;
+                this.player.dashCooldown = 0;
+                this.player.dashDuration = 0;
+                this.obstacles = [];
+                this.score = 0;
+                this.dodgedCount = 0;
+                this.gameTime = 0;
+                this.isPaused = false;
+                this.totalPausedTime = 0;
+                this.pauseStartTime = 0;
+                this.keys = {};
+                // Reset health regeneration timer
+                this.healthRegenTimer = 0;
+            }
+
+            restartGame() {
+                this.reset();
+                this.loadObstacles([...this.originalObstacles]);
+                const audio = new Audio(URL.createObjectURL(this.audioFile));
+                this.start(audio);
+            }
+
+            returnToMenu() {
+                if (this.audio) {
+                    this.audio.pause();
+                }
+                this.isRunning = false;
+                this.isPaused = false;
+                this.currentScreen = 'menu';
+                this.statusMessage = '';
+                this.loadingProgress = undefined;
+                this.totalPausedTime = 0;
+                this.pauseStartTime = 0;
+            }
+
+            openFileDialog() {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'audio/*';
+                input.onchange = (e) => this.handleFileUpload(e);
+                input.click();
+            }
+
+            async handleFileUpload(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                this.audioFile = file;
+                
+                try {
+                    this.statusMessage = 'Loading audio file...';
+                    this.statusColor = '#00ffff';
+                    this.loadingProgress = 0.2;
+                    
+                    const arrayBuffer = await file.arrayBuffer();
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    this.statusMessage = 'Decoding audio...';
+                    this.loadingProgress = 0.4;
+                    
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    
+                    this.statusMessage = 'Analyzing rhythm and generating obstacles...';
+                    this.loadingProgress = 0.6;
+                    
+                    const beatDetector = new EnhancedBeatDetector();
+                    const obstacles = await beatDetector.analyzeAudio(audioBuffer);
+                    
+                    const laserCount = obstacles.filter(o => o.type === 'laser').length;
+                    const squareCount = obstacles.filter(o => o.type === 'square').length;
+                    const triangleCount = obstacles.filter(o => o.type === 'triangle').length;
+                    
+                    this.statusMessage = `Found ${obstacles.length} obstacles! ` +
+                        `(🔴 ${laserCount} lasers, 🔵 ${squareCount} squares, 🔺 ${triangleCount} triangles)`;
+                    this.loadingProgress = 0.8;
+                    
+                    this.originalObstacles = obstacles;
+                    
+                    setTimeout(() => {
+                        this.loadingProgress = 1.0;
+                        // Instead of auto-starting, show ready state with Start button
+                        this.statusColor = '#00ff00';
+                        this.loadingProgress = undefined;
+                        
+                        // Store the audio and obstacles for manual start
+                        this.pendingAudio = new Audio(URL.createObjectURL(file));
+                        this.pendingObstacles = [...obstacles];
+                    }, 800);
+                    
+                } catch (error) {
+                    this.statusMessage = '❌ Error: ' + error.message;
+                    this.statusColor = '#ff0000';
+                    this.loadingProgress = undefined;
+                    console.error('Error processing audio:', error);
+                }
+            }
+        }
+
+        // ==================== MAIN APPLICATION ====================
+        const canvas = document.getElementById('gameCanvas');
+        const game = new RhythmRunner(canvas);
+        game.gameLoop();
+    </script>
+</body>
+</html>
