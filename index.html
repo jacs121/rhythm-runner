@@ -2,45 +2,85 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rhythm Obstacle Runner - V3 Fixed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Rhythm Obstacle Runner - Mobile Optimized</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #000;
             color: #fff;
-            overflow: hidden;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            user-select: none;
+            touch-action: none;
+            overscroll-behavior: contain;
+            position: fixed;
+            /* Ensure full coverage on all devices */
+            -webkit-overflow-scrolling: touch;
         }
 
         #gameCanvas {
             display: block;
+            background: #0a0a1a;
+            touch-action: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            /* Ensure no scaling issues or cutoffs */
             width: 100vw;
             height: 100vh;
-            background: #0a0a1a;
+            max-width: 100%;
+            max-height: 100%;
+            /* Prevent iOS Safari bouncing */
+            -webkit-transform: translateZ(0);
         }
 
-        /* Touch Controls for Mobile */
+        /* Mobile Controls - Enhanced Design */
         .mobile-controls {
             display: none;
-            grid-template-columns: repeat(3, 70px);
-            gap: 12px;
             position: fixed;
-            bottom: 15px;
-            right: 15px;
-            z-index: 100;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 1000;
+            pointer-events: none;
+            gap: 15px;
+            max-width: 100vw;
+            box-sizing: border-box;
+            padding: 0 10px;
+        }
+
+        /* Left side controls (movement) */
+        .movement-controls {
+            display: grid;
+            grid-template-columns: repeat(3, 70px);
+            grid-template-rows: repeat(3, 70px);
+            gap: 10px;
+            float: left;
+            pointer-events: auto;
+        }
+
+        /* Right side controls (action buttons) */
+        .action-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            float: right;
+            pointer-events: auto;
         }
 
         .mobile-btn {
@@ -48,27 +88,205 @@
             height: 70px;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.15);
-            border: 2px solid #00ffff;
-            color: white;
-            font-size: 1.8em;
+            border: 3px solid rgba(0, 255, 255, 0.6);
+            color: #ffffff;
+            font-size: 24px;
+            font-weight: bold;
             display: flex;
             align-items: center;
             justify-content: center;
             backdrop-filter: blur(10px);
             touch-action: manipulation;
+            transition: all 0.1s ease;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
         }
 
-        .mobile-btn:active {
-            background: rgba(0, 255, 255, 0.4);
+        .mobile-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle, transparent 30%, rgba(0, 255, 255, 0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.1s ease;
+        }
+
+        .mobile-btn:active::before {
+            opacity: 1;
+        }
+
+        .mobile-btn.pressed {
+            background: rgba(0, 255, 255, 0.3);
+            border-color: #00ffff;
             transform: scale(0.95);
+            box-shadow: 0 4px 8px rgba(0, 255, 255, 0.3);
         }
 
-        @media (max-width: 768px), (max-height: 600px) {
+        .mobile-btn.action {
+            width: 80px;
+            height: 80px;
+            border-radius: 15px;
+            font-size: 16px;
+            border-width: 3px;
+        }
+
+        .mobile-btn.dash {
+            background: rgba(255, 200, 50, 0.2);
+            border-color: rgba(255, 200, 50, 0.8);
+        }
+
+        .mobile-btn.dash.pressed {
+            background: rgba(255, 200, 50, 0.4);
+            border-color: #ffc800;
+        }
+
+        .mobile-btn.pause {
+            background: rgba(255, 100, 100, 0.2);
+            border-color: rgba(255, 100, 100, 0.8);
+        }
+
+        .mobile-btn.pause.pressed {
+            background: rgba(255, 100, 100, 0.4);
+            border-color: #ff6464;
+        }
+
+        /* Mobile detection and responsive design - more specific */
+        @media (max-width: 1024px) and (hover: none) and (pointer: coarse) {
             .mobile-controls {
-                display: grid;
+                display: block;
+            }
+            
+            /* Portrait orientation notice for gameplay */
+            .portrait-notice {
+                display: none;
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.9);
+                color: #00ffff;
+                padding: 20px;
+                border-radius: 10px;
+                border: 2px solid #00ffff;
+                text-align: center;
+                z-index: 10000;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            
+            /* Show notice in portrait during gameplay */
+            @media (orientation: portrait) {
+                .gameplay .portrait-notice {
+                    display: block;
+                }
+            }
+            
+            .mobile-btn {
+                font-size: 18px;
+            }
+            
+            .mobile-btn.action {
+                font-size: 14px;
+                width: 70px;
+                height: 70px;
+            }
+            
+            /* Ensure canvas fills screen properly */
+            html, body {
+                margin: 0;
+                padding: 0;
             }
         }
 
+        /* Landscape/Wide screen optimizations */
+        @media (orientation: landscape) and (max-height: 600px) {
+            .mobile-controls {
+                bottom: 10px;
+                left: 10px;
+                right: 10px;
+            }
+            
+            .movement-controls {
+                grid-template-columns: repeat(3, 50px);
+                grid-template-rows: repeat(3, 50px);
+                gap: 6px;
+            }
+            
+            .mobile-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 16px;
+            }
+            
+            .mobile-btn.action {
+                width: 60px;
+                height: 60px;
+                font-size: 12px;
+            }
+        }
+
+        /* Wide screen (tablets/laptops) */
+        @media (min-width: 768px) and (orientation: landscape) {
+            .mobile-controls {
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                max-width: 600px;
+            }
+            
+            .movement-controls {
+                grid-template-columns: repeat(3, 80px);
+                grid-template-rows: repeat(3, 80px);
+                gap: 12px;
+            }
+            
+            .mobile-btn {
+                width: 80px;
+                height: 80px;
+                font-size: 24px;
+            }
+            
+            .mobile-btn.action {
+                width: 100px;
+                height: 80px;
+                font-size: 18px;
+                border-radius: 15px;
+            }
+        }
+
+        /* For very small screens */
+        @media (max-width: 480px) {
+            .mobile-controls {
+                bottom: 15px;
+                left: 15px;
+                right: 15px;
+            }
+            
+            .movement-controls {
+                grid-template-columns: repeat(3, 60px);
+                grid-template-rows: repeat(3, 60px);
+                gap: 8px;
+            }
+            
+            .mobile-btn {
+                width: 60px;
+                height: 60px;
+                font-size: 18px;
+            }
+            
+            .mobile-btn.action {
+                width: 70px;
+                height: 70px;
+                font-size: 12px;
+            }
+        }
+
+        /* Loading animation */
         .loading {
             display: inline-block;
             width: 20px;
@@ -84,6 +302,129 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        /* Orientation handling */
+        @media screen and (orientation: landscape) and (max-height: 500px) {
+            .mobile-controls {
+                bottom: 10px;
+                left: 10px;
+                right: 10px;
+            }
+            
+            .movement-controls {
+                grid-template-columns: repeat(3, 50px);
+                grid-template-rows: repeat(3, 50px);
+                gap: 6px;
+            }
+            
+            .mobile-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 16px;
+            }
+            
+            .mobile-btn.action {
+                width: 60px;
+                height: 60px;
+                font-size: 11px;
+            }
+        }
+
+        /* Ultra-wide screens (21:9, 32:9, etc.) */
+        @media (min-aspect-ratio: 2/1) and (min-width: 1200px) {
+            .mobile-controls {
+                left: 50%;
+                transform: translateX(-50%);
+                max-width: 800px;
+                gap: 15px;
+            }
+            
+            .movement-controls {
+                grid-template-columns: repeat(3, 80px);
+                grid-template-rows: repeat(3, 80px);
+                gap: 10px;
+            }
+            
+            .mobile-btn {
+                width: 80px;
+                height: 80px;
+                font-size: 24px;
+            }
+            
+            .mobile-btn.action {
+                width: 100px;
+                height: 80px;
+                font-size: 16px;
+                border-radius: 15px;
+            }
+        }
+
+        /* Standard desktop displays */
+        @media (min-width: 1024px) and (orientation: landscape) {
+            .mobile-controls {
+                bottom: 30px;
+                left: 50%;
+                transform: translateX(-50%);
+                max-width: 600px;
+            }
+            
+            .movement-controls {
+                grid-template-columns: repeat(3, 70px);
+                grid-template-rows: repeat(3, 70px);
+                gap: 12px;
+            }
+            
+            .mobile-btn {
+                width: 70px;
+                height: 70px;
+                font-size: 20px;
+            }
+            
+            .mobile-btn.action {
+                width: 90px;
+                height: 70px;
+                font-size: 16px;
+                border-radius: 12px;
+            }
+        }
+
+        /* Very small phones */
+        @media (max-width: 360px) {
+            .mobile-controls {
+                bottom: 10px;
+                left: 10px;
+                right: 10px;
+            }
+            
+            .movement-controls {
+                grid-template-columns: repeat(3, 50px);
+                grid-template-rows: repeat(3, 50px);
+                gap: 5px;
+            }
+            
+            .mobile-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 14px;
+            }
+            
+            .mobile-btn.action {
+                width: 60px;
+                height: 50px;
+                font-size: 10px;
+            }
+        }
+
+        /* High-DPI displays - reduce button sizes slightly */
+        @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+            .mobile-btn {
+                transform: scale(0.9);
+            }
+            
+            .mobile-btn.action {
+                transform: scale(0.9);
+            }
+        }
     </style>
 </head>
 <body>
@@ -91,12 +432,31 @@
 
     <!-- Mobile Controls -->
     <div class="mobile-controls">
-        <button class="mobile-btn" id="leftBtn" style="grid-column: 1; grid-row: 2;">←</button>
-        <button class="mobile-btn" id="upBtn" style="grid-column: 2; grid-row: 1;">↑</button>
-        <button class="mobile-btn" id="downBtn" style="grid-column: 2; grid-row: 2;">↓</button>
-        <button class="mobile-btn" id="rightBtn" style="grid-column: 3; grid-row: 2;">→</button>
-        <button class="mobile-btn" id="dashBtn" style="grid-column: 2; grid-row: 3; font-size: 1.1em;">DASH</button>
-        <button class="mobile-btn" id="pauseBtn" style="grid-column: 3; grid-row: 3;">⏸</button>
+        <!-- Portrait orientation notice for gameplay -->
+        <div class="portrait-notice">
+            🔄 Please rotate your device to landscape for the best gameplay experience!
+        </div>
+        
+        <!-- Movement Controls (Left Side) -->
+        <div class="movement-controls">
+            <div></div>
+            <button class="mobile-btn" id="upBtn" style="grid-column: 2; grid-row: 1;">↑</button>
+            <div></div>
+            
+            <button class="mobile-btn" id="leftBtn" style="grid-column: 1; grid-row: 2;">←</button>
+            <div></div>
+            <button class="mobile-btn" id="rightBtn" style="grid-column: 3; grid-row: 2;">→</button>
+            
+            <div></div>
+            <button class="mobile-btn" id="downBtn" style="grid-column: 2; grid-row: 3;">↓</button>
+            <div></div>
+        </div>
+
+        <!-- Action Controls (Right Side) -->
+        <div class="action-controls">
+            <button class="mobile-btn dash action" id="dashBtn">DASH</button>
+            <button class="mobile-btn pause action" id="pauseBtn">⏸</button>
+        </div>
     </div>
 
     <script>
@@ -133,7 +493,7 @@
 
             detectLaserBeats(channelData, duration) {
                 const obstacles = [];
-                const chunkDuration = 0.15; // Even less frequent checks
+                const chunkDuration = 0.15;
                 const chunkSize = Math.floor(this.sampleRate * chunkDuration);
                 const numChunks = Math.floor(channelData.length / chunkSize);
                 
@@ -142,11 +502,9 @@
                     const endSample = Math.min(startSample + chunkSize, channelData.length);
                     const timestamp = (startSample / this.sampleRate) * 1000;
                     
-                    // EXTREMELY strict thresholds
                     const transient = this.detectTransient(channelData, startSample, endSample);
                     const highFreq = this.getHighFrequencyEnergy(channelData, startSample, endSample);
                     
-                    // Very strict conditions - only the sharpest peaks
                     if (transient > 0.5 && highFreq > 0.25) {
                         obstacles.push({
                             time: timestamp,
@@ -282,8 +640,8 @@
 
             filterObstacles(obstacles) {
                 const filtered = [];
-                const minGap = 250; // Minimum gap between ANY obstacles
-                const minLaserGap = 2500; // MUCH longer gap between lasers (2.5 seconds!)
+                const minGap = 250;
+                const minLaserGap = 2500;
                 let lastLaserTime = -10000;
                 
                 for (let i = 0; i < obstacles.length; i++) {
@@ -291,7 +649,6 @@
                         obstacles[i].time - filtered[filtered.length - 1].time;
                     const timeSinceLastLaser = obstacles[i].time - lastLaserTime;
                     
-                    // Super strict laser filtering
                     if (obstacles[i].type === 'laser') {
                         if (timeSinceLastObstacle >= minGap && timeSinceLastLaser >= minLaserGap) {
                             filtered.push(obstacles[i]);
@@ -382,7 +739,7 @@
                 
                 this.ctx.restore();
                 
-                return { x, y, width, height };
+                return { x: x, y: y, width: width, height: height };
             }
 
             drawSlider(x, y, width, height, value, max, label) {
@@ -447,7 +804,17 @@
                 this.ui = new UIRenderer(this.ctx, canvas);
                 
                 this.resizeCanvas();
-                window.addEventListener('resize', () => this.resizeCanvas());
+                window.addEventListener('resize', () => {
+                    this.resizeCanvas();
+                    // Update mobile controls visibility when screen size changes
+                    this.updateMobileControlsVisibility();
+                });
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => this.resizeCanvas(), 100);
+                });
+                window.addEventListener('deviceorientationchange', () => {
+                    setTimeout(() => this.resizeCanvas(), 100);
+                });
                 
                 this.difficulty = 'easy';
                 this.difficultyConfig = DIFFICULTY_CONFIGS.easy;
@@ -467,10 +834,10 @@
                     dashSpeed: 18,
                     dashMaxCooldown: 2000,
                     dashMaxDuration: 200,
-                    regenAmount: 3, // REDUCED from 5 to 3
+                    regenAmount: 3,
                     regenInterval: 0
                 };
-                this.setDifficulty(this.difficulty); // FIX BUG #4: Initialize regeneration settings
+                this.setDifficulty(this.difficulty);
                 
                 this.obstacles = [];
                 this.obstacleTimestamps = [];
@@ -490,42 +857,61 @@
                 this.audioDuration = 0;
                 this.volume = 70;
                 
-                this.currentScreen = 'menu'; // menu, game, pause, gameover, victory
+                this.currentScreen = 'menu';
                 this.keys = {};
                 this.mousePos = { x: 0, y: 0 };
                 this.interactiveElements = {};
                 this.isSliderDragging = false;
-                this.pendingAudio = null; // For start button functionality
-                this.pendingObstacles = null; // For start button functionality
+                this.pendingAudio = null;
+                this.pendingObstacles = null;
                 
                 this.setupInput();
                 this.setupMobileControls();
             }
 
             resizeCanvas() {
-                this.canvas.width = window.innerWidth;
-                this.canvas.height = window.innerHeight;
-                this.width = this.canvas.width;
-                this.height = this.canvas.height;
+                // Get the actual viewport dimensions
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+                
+                const dpr = window.devicePixelRatio || 1;
+                
+                // Reset any existing transformations
+                this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+                
+                // Set canvas internal resolution for device pixel ratio
+                this.canvas.width = viewportWidth * dpr;
+                this.canvas.height = viewportHeight * dpr;
+                
+                // Scale context to maintain coordinate consistency
+                this.ctx.scale(dpr, dpr);
+                
+                // Don't set explicit style dimensions - let CSS handle the display
+                // This prevents screen cutoff issues
+                
+                // Store logical dimensions (not affected by DPR)
+                this.width = viewportWidth;
+                this.height = viewportHeight;
+                
+                console.log(`Canvas resized: ${viewportWidth}x${viewportHeight} (DPR: ${dpr})`);
             }
 
             setDifficulty(difficulty) {
                 this.difficulty = difficulty;
                 this.difficultyConfig = DIFFICULTY_CONFIGS[difficulty];
                 this.player.speed = this.difficultyConfig.playerSpeed;
-                // Set health regeneration intervals based on difficulty
+                
                 if (difficulty === 'easy') {
-                    this.player.regenInterval = 3000; // INCREASED from 2 to 3 seconds
+                    this.player.regenInterval = 3000;
                 } else if (difficulty === 'medium') {
-                    this.player.regenInterval = 7000; // INCREASED from 5 to 7 seconds
+                    this.player.regenInterval = 7000;
                 } else {
-                    this.player.regenInterval = 0; // No regeneration for hard/epic
+                    this.player.regenInterval = 0;
                 }
             }
 
             setupInput() {
                 window.addEventListener('keydown', (e) => {
-                    // FIX BUG #2: Ignore Tab key to prevent permanent movement
                     if (e.key === 'Tab') {
                         e.preventDefault();
                         return;
@@ -549,14 +935,12 @@
                 });
                 
                 window.addEventListener('keyup', (e) => {
-                    // FIX BUG #2: Make sure Tab key doesn't interfere
                     if (e.key === 'Tab') {
                         return;
                     }
                     this.keys[e.key] = false;
                 });
 
-                // FIX BUG #1 & #4: Improve pause functionality
                 document.addEventListener('visibilitychange', () => {
                     if (document.hidden && this.currentScreen === 'game' && !this.isPaused) {
                         this.togglePause();
@@ -569,7 +953,6 @@
                     this.mousePos.x = e.clientX - rect.left;
                     this.mousePos.y = e.clientY - rect.top;
                     
-                    // FIX: Smooth slider dragging
                     if (this.isSliderDragging) {
                         this.handleSliderDrag(this.mousePos.x, this.mousePos.y);
                     }
@@ -587,7 +970,6 @@
                     const x = e.clientX - rect.left;
                     const y = e.clientY - rect.top;
                     
-                    // Check if clicking on slider to start dragging
                     if (this.interactiveElements.volumeSlider && this.ui.isPointInRect(x, y, this.interactiveElements.volumeSlider)) {
                         this.isSliderDragging = 'volume';
                         this.handleSliderDrag(x, y);
@@ -605,25 +987,137 @@
                     this.isSliderDragging = false;
                 });
 
+                // Mobile Canvas Touch Events (for all UI interactions)
                 this.canvas.addEventListener('touchstart', (e) => {
+                    console.log('Canvas touchstart detected');
                     if (e.changedTouches.length > 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
                         const rect = this.canvas.getBoundingClientRect();
                         const touch = e.changedTouches[0];
-                        const x = touch.clientX - rect.left;
-                        const y = touch.clientY - rect.top;
+                        
+                        // Calculate coordinates relative to canvas content (not CSS box)
+                        const scaleX = this.width / rect.width;
+                        const scaleY = this.height / rect.height;
+                        const x = (touch.clientX - rect.left) * scaleX;
+                        const y = (touch.clientY - rect.top) * scaleY;
+                        
+                        console.log(`Touch: client=(${touch.clientX}, ${touch.clientY})`);
+                        console.log(`Rect: left=${rect.left}, top=${rect.top}, w=${rect.width}, h=${rect.height}`);
+                        console.log(`Canvas: w=${this.width}, h=${this.height}`);
+                        console.log(`Coords: x=${x}, y=${y}, scale=(${scaleX}, ${scaleY})`);
+                        
                         this.handleClick(x, y);
                     }
-                });
+                }, { passive: false });
 
                 this.canvas.addEventListener('touchend', (e) => {
+                    console.log('Canvas touchend detected');
                     if (e.changedTouches.length > 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
                         const rect = this.canvas.getBoundingClientRect();
                         const touch = e.changedTouches[0];
-                        const x = touch.clientX - rect.left;
-                        const y = touch.clientY - rect.top;
+                        
+                        // Calculate coordinates relative to canvas content (not CSS box)
+                        const scaleX = this.width / rect.width;
+                        const scaleY = this.height / rect.height;
+                        const x = (touch.clientX - rect.left) * scaleX;
+                        const y = (touch.clientY - rect.top) * scaleY;
+                        
+                        console.log(`Touchend coords: x=${x}, y=${y}`);
                         this.handleClick(x, y);
                     }
-                });
+                }, { passive: false });
+
+                this.canvas.addEventListener('touchcancel', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, { passive: false });
+
+                this.canvas.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, { passive: false });
+            }
+
+            setupMobileControls() {
+                const upBtn = document.getElementById('upBtn');
+                const downBtn = document.getElementById('downBtn');
+                const leftBtn = document.getElementById('leftBtn');
+                const rightBtn = document.getElementById('rightBtn');
+                const dashBtn = document.getElementById('dashBtn');
+                const pauseBtn = document.getElementById('pauseBtn');
+                
+                // Simple and reliable touch handling
+                const setupButton = (button, key) => {
+                    const startPress = () => {
+                        this.keys[key] = true;
+                        button.classList.add('pressed');
+                    };
+                    
+                    const endPress = () => {
+                        this.keys[key] = false;
+                        button.classList.remove('pressed');
+                    };
+                    
+                    // Touch events
+                    button.addEventListener('touchstart', startPress, { passive: false });
+                    button.addEventListener('touchend', endPress, { passive: false });
+                    button.addEventListener('touchcancel', endPress, { passive: false });
+                    
+                    // Mouse events for testing
+                    button.addEventListener('mousedown', startPress);
+                    button.addEventListener('mouseup', endPress);
+                    button.addEventListener('mouseleave', endPress);
+                };
+                
+                // Setup movement buttons
+                setupButton(upBtn, 'ArrowUp');
+                setupButton(downBtn, 'ArrowDown');
+                setupButton(leftBtn, 'ArrowLeft');
+                setupButton(rightBtn, 'ArrowRight');
+                
+                // Dash button
+                const dashStart = () => {
+                    this.activateDash();
+                    dashBtn.classList.add('pressed');
+                    setTimeout(() => dashBtn.classList.remove('pressed'), 200);
+                };
+                
+                dashBtn.addEventListener('touchstart', dashStart, { passive: false });
+                dashBtn.addEventListener('touchend', () => dashBtn.classList.remove('pressed'), { passive: false });
+                dashBtn.addEventListener('touchcancel', () => dashBtn.classList.remove('pressed'), { passive: false });
+                dashBtn.addEventListener('mousedown', dashStart);
+                
+                // Pause button
+                const pauseStart = () => {
+                    if (this.currentScreen === 'game') {
+                        this.togglePause();
+                        pauseBtn.classList.add('pressed');
+                        setTimeout(() => pauseBtn.classList.remove('pressed'), 200);
+                    }
+                };
+                
+                pauseBtn.addEventListener('touchstart', pauseStart, { passive: false });
+                pauseBtn.addEventListener('touchend', () => pauseBtn.classList.remove('pressed'), { passive: false });
+                pauseBtn.addEventListener('touchcancel', () => pauseBtn.classList.remove('pressed'), { passive: false });
+                pauseBtn.addEventListener('click', pauseStart);
+                
+                // Global touch handlers to prevent stuck states
+                document.addEventListener('touchend', () => {
+                    // Release all keys when any touch ends
+                    this.keys['ArrowUp'] = false;
+                    this.keys['ArrowDown'] = false;
+                    this.keys['ArrowLeft'] = false;
+                    this.keys['ArrowRight'] = false;
+                    
+                    [upBtn, downBtn, leftBtn, rightBtn].forEach(btn => {
+                        btn.classList.remove('pressed');
+                    });
+                }, { passive: true });
             }
 
             handleSliderDrag(x, y) {
@@ -638,23 +1132,30 @@
                     const seekTime = percent * this.audioDuration;
                     if (this.audio) {
                         this.audio.currentTime = seekTime;
-                        // FIX BUG #1: Adjust pause timing correctly
                         this.audioStartTime = Date.now() - (seekTime * 1000) - this.totalPausedTime;
                     }
                 }
             }
 
             handleClick(x, y) {
+                console.log(`handleClick called with coordinates: x=${x}, y=${y}`);
                 const el = this.interactiveElements;
+                console.log(`Available interactive elements:`, Object.keys(el));
+                console.log(`Canvas size: ${this.width}x${this.height}`);
                 
-                // Check buttons
                 for (let key in el) {
-                    if (el[key] && el[key].type === 'button' && 
-                        this.ui.isPointInRect(x, y, el[key])) {
-                        el[key].callback();
-                        return;
+                    if (el[key] && el[key].type === 'button') {
+                        const rect = el[key];
+                        const inRect = this.ui.isPointInRect(x, y, rect);
+                        console.log(`Button ${key}: rect=(${rect.x}, ${rect.y}, ${rect.width}x${rect.height}), inRect=${inRect}`);
+                        if (inRect) {
+                            console.log(`Executing callback for ${key}`);
+                            el[key].callback();
+                            return;
+                        }
                     }
                 }
+                console.log('No button clicked');
             }
 
             activateDash() {
@@ -663,63 +1164,6 @@
                     this.player.dashDuration = this.player.dashMaxDuration;
                     this.player.dashCooldown = this.player.dashMaxCooldown;
                 }
-            }
-
-            setupMobileControls() {
-                const upBtn = document.getElementById('upBtn');
-                const downBtn = document.getElementById('downBtn');
-                const leftBtn = document.getElementById('leftBtn');
-                const rightBtn = document.getElementById('rightBtn');
-                const dashBtn = document.getElementById('dashBtn');
-                const pauseBtn = document.getElementById('pauseBtn');
-                
-                upBtn.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowUp'] = true;
-                });
-                upBtn.addEventListener('touchend', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowUp'] = false;
-                });
-                
-                downBtn.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowDown'] = true;
-                });
-                downBtn.addEventListener('touchend', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowDown'] = false;
-                });
-                
-                leftBtn.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowLeft'] = true;
-                });
-                leftBtn.addEventListener('touchend', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowLeft'] = false;
-                });
-                
-                rightBtn.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowRight'] = true;
-                });
-                rightBtn.addEventListener('touchend', (e) => {
-                    e.preventDefault();
-                    this.keys['ArrowRight'] = false;
-                });
-                
-                dashBtn.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    this.activateDash();
-                });
-                
-                pauseBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (this.currentScreen === 'game') {
-                        this.togglePause();
-                    }
-                });
             }
 
             loadObstacles(timestamps) {
@@ -742,7 +1186,6 @@
                 this.audioDuration = audio.duration;
                 this.audio.volume = this.volume / 100;
                 
-                // Set up audio analyser for dynamic background
                 try {
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     this.audioAnalyser = this.audioContext.createAnalyser();
@@ -763,8 +1206,9 @@
                 this.audioStartTime = Date.now();
                 this.totalPausedTime = 0;
                 this.pauseStartTime = 0;
-                this.healthRegenTimer = 0; // Reset regen timer on game start
+                this.healthRegenTimer = 0;
                 this.audio.play();
+                this.updateMobileControlsVisibility();
                 this.gameLoop();
             }
 
@@ -772,15 +1216,16 @@
                 if (this.pendingAudio && this.pendingObstacles) {
                     this.loadObstacles([...this.pendingObstacles]);
                     this.start(this.pendingAudio);
-                    // Clear pending data
                     this.pendingAudio = null;
                     this.pendingObstacles = null;
                     this.statusMessage = '';
+                    
+                    // Force landscape orientation for gameplay
+                    this.requestLandscapeOrientation();
                 }
             }
 
             formatTime(seconds) {
-                // FIX BUG #3: Handle NaN and undefined values
                 if (!seconds || isNaN(seconds) || seconds < 0) {
                     return '0:00';
                 }
@@ -794,13 +1239,12 @@
                 
                 this.isPaused = !this.isPaused;
                 this.currentScreen = this.isPaused ? 'pause' : 'game';
+                this.updateMobileControlsVisibility();
                 
                 if (this.isPaused) {
-                    // FIX BUG #1: Track pause time properly
                     this.pauseStartTime = Date.now();
                     this.audio.pause();
                 } else {
-                    // FIX BUG #1: Calculate total paused time correctly
                     if (this.pauseStartTime > 0) {
                         this.totalPausedTime += Date.now() - this.pauseStartTime;
                         this.pauseStartTime = 0;
@@ -828,7 +1272,7 @@
                     case 'laser':
                         obstacle.width = 8;
                         obstacle.height = this.height;
-                        obstacle.x = 0; // FIX: Set x to 0 for vertical lasers
+                        obstacle.x = 0;
                         obstacle.y = 0;
                         obstacle.isVertical = Math.random() > 0.4;
                         
@@ -836,7 +1280,7 @@
                             obstacle.width = this.width;
                             obstacle.height = 8;
                             obstacle.y = Math.random() * (this.height - 150) + 75;
-                            obstacle.x = 0; // FIX: Set x to 0 for horizontal lasers too
+                            obstacle.x = 0;
                         }
                         obstacle.damage = Math.round(15 * config.damageMultiplier);
                         break;
@@ -844,7 +1288,6 @@
                     case 'square':
                         obstacle.width = 40;
                         obstacle.height = 40;
-                        // Prevent corner camping by avoiding top/bottom 60px
                         const minY = 60;
                         const maxY = this.height - obstacle.height - 60;
                         obstacle.y = minY + Math.random() * (maxY - minY);
@@ -854,7 +1297,6 @@
                     case 'triangle':
                         obstacle.width = 50;
                         obstacle.height = 50;
-                        // Prevent corner camping by avoiding top/bottom 50px
                         const triMinY = 50;
                         const triMaxY = this.height - obstacle.height - 50;
                         obstacle.y = triMinY + Math.random() * (triMaxY - triMinY);
@@ -872,10 +1314,8 @@
             update() {
                 if (!this.isRunning) return;
 
-                // FIX BUG #3: Pause game updates when paused
                 if (this.isPaused) return;
 
-                // FIX BUG #1: Account for total paused time in game timing
                 this.gameTime = Date.now() - this.audioStartTime - this.totalPausedTime;
                 
                 if (this.audio.ended) {
@@ -888,12 +1328,11 @@
                     this.spawnObstacle(this.obstacleTimestamps.shift());
                 }
                 
-                // FIXED DASH MECHANICS - clean state management
                 if (this.player.isDashing) {
                     this.player.dashDuration -= 16;
                     if (this.player.dashDuration <= 0) {
                         this.player.isDashing = false;
-                        this.player.dashDuration = 0; // Clean reset
+                        this.player.dashDuration = 0;
                     }
                 }
                 
@@ -901,17 +1340,15 @@
                     this.player.dashCooldown = Math.max(0, this.player.dashCooldown - 16);
                 }
                 
-                // HEALTH REGENERATION - Auto-heal based on difficulty
                 if (this.player.regenInterval > 0 && this.player.health < this.player.maxHealth) {
-                    this.healthRegenTimer += 16; // Assuming ~60fps, 16ms per frame
+                    this.healthRegenTimer += 16;
                     if (this.healthRegenTimer >= this.player.regenInterval) {
                         this.player.health = Math.min(this.player.maxHealth, 
                                                      this.player.health + this.player.regenAmount);
-                        this.healthRegenTimer = 0; // Reset timer
+                        this.healthRegenTimer = 0;
                     }
                 }
                 
-                // PLAYER MOVEMENT - calculate speed per frame
                 const currentSpeed = this.player.isDashing ? this.player.dashSpeed : this.player.speed;
                 
                 if (this.keys['ArrowUp'] || this.keys['w'] || this.keys['W']) {
@@ -929,7 +1366,6 @@
                                             this.player.x + currentSpeed);
                 }
                 
-                // FIX BUG #4: Update obstacles with proper off-screen removal
                 for (let i = this.obstacles.length - 1; i >= 0; i--) {
                     const obs = this.obstacles[i];
                     
@@ -945,11 +1381,8 @@
                         obs.y += Math.sin(obs.curveAmount) * obs.curveDirection * 3;
                         obs.y = Math.max(0, Math.min(this.height - obs.height, obs.y));
                     }
-                    // FIX BUG #4: Lasers don't move, but we need to check if they're still active
                     
-                    // COLLISION with DASH INVINCIBILITY (check both active and warning phases)
                     if (!this.player.isDashing && this.checkCollision(this.player, obs)) {
-                        // FIX: Gray (warning) obstacles do 0.25 damage, active obstacles do full damage
                         const damageMultiplier = obs.isActive ? 1.0 : 0.25;
                         this.player.health = Math.max(0, this.player.health - (obs.damage * damageMultiplier));
                         this.obstacles.splice(i, 1);
@@ -960,7 +1393,6 @@
                         continue;
                     }
                     
-                    // Destroy obstacle if dashing through it
                     if (obs.isActive && this.player.isDashing && this.checkCollision(this.player, obs)) {
                         this.obstacles.splice(i, 1);
                         this.score += 25;
@@ -968,7 +1400,6 @@
                         continue;
                     }
                     
-                    // FIX BUG #4: Remove obstacles that are off-screen or inactive for too long
                     let shouldRemove = false;
                     
                     if (obs.type === 'square' || obs.type === 'triangle') {
@@ -976,9 +1407,8 @@
                             shouldRemove = true;
                         }
                     } else if (obs.type === 'laser') {
-                        // For lasers, remove them after they've been active for a reasonable time
                         const laserActiveTime = this.gameTime - obs.activateTime;
-                        if (laserActiveTime > 3000) { // Remove after 3 seconds of being active
+                        if (laserActiveTime > 3000) {
                             shouldRemove = true;
                         }
                     }
@@ -1002,7 +1432,10 @@
                 this.ctx.fillStyle = '#0a0a1a';
                 this.ctx.fillRect(0, 0, this.width, this.height);
                 
-                this.interactiveElements = {}; // Reset each frame
+                this.interactiveElements = {};
+                
+                // Show/hide mobile controls based on game state
+                this.updateMobileControlsVisibility();
                 
                 if (this.currentScreen === 'menu') {
                     this.drawMenuScreen();
@@ -1017,44 +1450,167 @@
                 }
             }
 
+            updateMobileControlsVisibility() {
+                const mobileControls = document.querySelector('.mobile-controls');
+                const portraitNotice = document.querySelector('.portrait-notice');
+                if (!mobileControls) return;
+                
+                // Only show mobile controls during active gameplay (not paused)
+                const shouldShowControls = this.currentScreen === 'game' && !this.isPaused;
+                
+                if (shouldShowControls) {
+                    mobileControls.style.display = 'block';
+                    
+                    // Add gameplay class to body for CSS targeting
+                    document.body.classList.add('gameplay');
+                    
+                    // Show/hide portrait notice based on orientation during gameplay
+                    if (portraitNotice) {
+                        const isPortrait = window.innerHeight > window.innerWidth;
+                        if (isPortrait) {
+                            portraitNotice.style.display = 'block';
+                        } else {
+                            portraitNotice.style.display = 'none';
+                        }
+                    }
+                } else {
+                    mobileControls.style.display = 'none';
+                    
+                    // Remove gameplay class when not in game
+                    document.body.classList.remove('gameplay');
+                    
+                    if (portraitNotice) {
+                        portraitNotice.style.display = 'none';
+                    }
+                }
+            }
+
+            // Screen orientation control for mobile devices
+            async requestLandscapeOrientation() {
+                // Force landscape orientation during gameplay
+                if (screen.orientation && screen.orientation.lock) {
+                    try {
+                        await screen.orientation.lock('landscape-primary');
+                    } catch (error) {
+                        console.log('Screen orientation lock not supported:', error);
+                        // Fallback to CSS orientation hints
+                        document.body.style.transform = 'rotate(0deg)';
+                    }
+                }
+            }
+
+            async unlockOrientation() {
+                // Unlock to allow portrait orientation in menus
+                if (screen.orientation && screen.orientation.unlock) {
+                    try {
+                        await screen.orientation.unlock();
+                    } catch (error) {
+                        console.log('Screen orientation unlock not supported:', error);
+                        // Fallback - remove CSS transforms
+                        document.body.style.transform = 'rotate(0deg)';
+                    }
+                }
+            }
+
             drawMenuScreen() {
-                const centerX = this.width / 2;
+                // Calculate optimal content area for different screen sizes
+                const ThisAspectRatio = this.width / this.height;
+                let contentWidth, contentX;
+                
+                if (ThisAspectRatio > 2.5) {
+                    // Ultra-wide screens (21:9, 32:9, etc.) - constrain content width
+                    contentWidth = Math.min(1200, this.height * 1.8);
+                    contentX = (this.width - contentWidth) / 2;
+                } else if (ThisAspectRatio > 1.8) {
+                    // Wide screens (16:9, 21:9) - moderate constraint
+                    contentWidth = Math.min(1000, this.height * 1.4);
+                    contentX = (this.width - contentWidth) / 2;
+                } else {
+                    // Standard screens - use full width
+                    contentWidth = this.width;
+                    contentX = 0;
+                }
+                
+                const centerX = contentX + contentWidth / 2;
                 const centerY = this.height / 2;
                 
-                // Title
+                // Title - responsive sizing with content constraint
                 this.ctx.fillStyle = '#ffffff';
-                this.ctx.font = 'bold ' + Math.floor(this.height * 0.08) + 'px Arial';
+                const titleSize = Math.max(24, Math.min(48, contentWidth * 0.06));
+                this.ctx.font = 'bold ' + titleSize + 'px Arial';
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
                 this.ctx.shadowBlur = 20;
                 this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
-                this.ctx.fillText('🎵 RHYTHM OBSTACLE RUNNER', centerX, this.height * 0.2);
+                this.ctx.fillText('🎵 RHYTHM OBSTACLE RUNNER', centerX, this.height * 0.15);
                 
                 this.ctx.shadowBlur = 0;
-                this.ctx.font = Math.floor(this.height * 0.03) + 'px Arial';
+                const subtitleSize = Math.max(14, Math.min(20, contentWidth * 0.03));
+                this.ctx.font = subtitleSize + 'px Arial';
                 this.ctx.fillStyle = '#aaa';
                 this.ctx.fillText('Load a song and dodge AI-generated obstacles!', 
-                                 centerX, this.height * 0.28);
+                                 centerX, this.height * 0.22);
                 
-                // Difficulty selection
+                // Difficulty selection - responsive with content constraint
                 const diffLabel = 'Select Difficulty:';
                 this.ctx.fillStyle = '#00ffff';
-                this.ctx.font = 'bold ' + Math.floor(this.height * 0.035) + 'px Arial';
-                this.ctx.fillText(diffLabel, centerX, this.height * 0.38);
+                this.ctx.font = 'bold ' + Math.max(18, contentWidth * 0.04) + 'px Arial';
+                this.ctx.fillText(diffLabel, centerX, this.height * 0.3);
                 
                 const difficulties = ['easy', 'medium', 'hard', 'epic'];
                 const diffNames = ['Easy', 'Medium', 'Hard', 'Epic Gamer'];
-                const buttonWidth = Math.min(180, this.width * 0.12);
-                const buttonHeight = Math.floor(this.height * 0.06);
-                const spacing = buttonWidth + 20;
-                const startX = centerX - (spacing * 2);
+                
+                // Detect landscape phone orientation for better sizing
+                const isLandscapePhone = this.width > this.height && this.width < 900;
+                const aspectRatio = this.width / this.height;
+                
+                // Adaptive sizing based on screen type
+                let maxButtonWidth, buttonSpacing, minButtonWidth, buttonHeight;
+                
+                if (isLandscapePhone) {
+                    // Landscape phone: use smaller proportions to prevent clipping
+                    maxButtonWidth = Math.min(150, this.width * 0.20); // Max 20% of width, capped at 150px
+                    minButtonWidth = 70; // Smaller minimum for landscape
+                    buttonSpacing = Math.max(10, this.width * 0.015); // Minimal spacing for landscape
+                    buttonHeight = Math.max(35, this.height * 0.05); // Smaller height for landscape
+                } else {
+                    // Portrait or desktop: use larger proportions
+                    maxButtonWidth = Math.min(200, this.width * 0.22); // 22% of width, capped at 200px
+                    minButtonWidth = 100; // Larger minimum for portrait/desktop
+                    buttonSpacing = Math.max(15, this.width * 0.02); // Better spacing for portrait
+                    buttonHeight = Math.max(45, this.height * 0.06); // Standard height
+                }
+                
+                const totalSpacing = (difficulties.length - 1) * buttonSpacing;
+                const totalButtonsWidth = difficulties.length * maxButtonWidth;
+                
+                // Use 93% of screen width with proper margins
+                const availableWidth = this.width * 0.93;
+                const minMargin = isLandscapePhone ? 10 : 20; // Smaller margins for landscape
+                
+                // Scale down buttons if they don't fit
+                let actualButtonWidth, startX, y;
+                
+                if (totalButtonsWidth + totalSpacing > availableWidth - (minMargin * 2)) {
+                    // Calculate scaling to fit within available space
+                    const maxAvailableForButtons = availableWidth - (minMargin * 2) - totalSpacing;
+                    actualButtonWidth = Math.max(minButtonWidth, maxAvailableForButtons / difficulties.length);
+                } else {
+                    // Use calculated size
+                    actualButtonWidth = maxButtonWidth;
+                }
+                
+                // Center the buttons horizontally with proper margins
+                const totalWidth = difficulties.length * actualButtonWidth + totalSpacing;
+                startX = Math.max(minMargin, centerX - totalWidth / 2);
+                y = this.height * 0.35;
+                y = this.height * 0.35;
                 
                 for (let i = 0; i < difficulties.length; i++) {
-                    const x = startX + (i * spacing);
-                    const y = this.height * 0.43;
+                    const x = startX + (i * (actualButtonWidth + buttonSpacing));
                     const highlighted = this.difficulty === difficulties[i];
                     
-                    const btn = this.ui.drawButton(x, y, buttonWidth, buttonHeight, 
+                    const btn = this.ui.drawButton(x, y, actualButtonWidth, buttonHeight, 
                                                    diffNames[i], highlighted);
                     this.interactiveElements['diff_' + i] = {
                         ...btn,
@@ -1064,7 +1620,8 @@
                 }
                 
                 // Choose file button
-                const fileBtn = this.ui.drawButton(centerX - 150, this.height * 0.58, 300, 60, 
+                const fileBtnWidth = Math.min(320, contentWidth * 0.7);
+                const fileBtn = this.ui.drawButton(centerX - fileBtnWidth/2, this.height * 0.48, fileBtnWidth, 60, 
                                                    '🎵 Choose Music File', false);
                 this.interactiveElements.fileBtn = {
                     ...fileBtn,
@@ -1072,9 +1629,10 @@
                     callback: () => this.openFileDialog()
                 };
                 
-                // Start Run button (show when audio is ready)
+                // Start Run button
                 if (this.pendingAudio && this.pendingObstacles) {
-                    const startBtn = this.ui.drawButton(centerX - 120, this.height * 0.68, 240, 60, 
+                    const startBtnWidth = Math.min(280, contentWidth * 0.6);
+                    const startBtn = this.ui.drawButton(centerX - startBtnWidth/2, this.height * 0.58, startBtnWidth, 60, 
                                                        '▶️ Start Run!', false);
                     this.interactiveElements.startBtn = {
                         ...startBtn,
@@ -1086,15 +1644,14 @@
                 // Status message
                 if (this.statusMessage) {
                     this.ctx.fillStyle = this.statusColor || '#00ffff';
-                    this.ctx.font = Math.floor(this.height * 0.025) + 'px Arial';
-                    this.ctx.fillText(this.statusMessage, centerX, this.height * 0.8);
+                    this.ctx.font = Math.max(16, contentWidth * 0.03) + 'px Arial';
+                    this.ctx.fillText(this.statusMessage, centerX, this.height * 0.72);
                     
-                    // Progress bar
                     if (this.loadingProgress !== undefined) {
-                        const barWidth = 400;
+                        const barWidth = Math.min(400, contentWidth * 0.8);
                         const barHeight = 8;
                         const barX = centerX - barWidth / 2;
-                        const barY = this.height * 0.76;
+                        const barY = this.height * 0.68;
                         
                         this.ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
                         this.ctx.fillRect(barX, barY, barWidth, barHeight);
@@ -1110,13 +1667,13 @@
                 
                 // Controls
                 this.ctx.fillStyle = '#666';
-                this.ctx.font = Math.floor(this.height * 0.02) + 'px Arial';
+                this.ctx.font = Math.max(12, contentWidth * 0.025) + 'px Arial';
                 this.ctx.fillText('Arrow Keys/WASD: Move | Shift: Dash | Space: Pause', 
                                  centerX, this.height * 0.9);
             }
 
             drawGameScreen() {
-                this.drawDynamicBackground(); // Dynamic background that responds to music
+                this.drawDynamicBackground();
                 this.drawGrid();
                 this.drawObstacles();
                 this.drawPlayer();
@@ -1208,7 +1765,6 @@
             drawDynamicBackground() {
                 if (!this.audio) return;
                 
-                // Get audio frequency data for dynamic visualization
                 const analyser = this.audioAnalyser;
                 if (!analyser) return;
                 
@@ -1216,20 +1772,17 @@
                 const dataArray = new Uint8Array(bufferLength);
                 analyser.getByteFrequencyData(dataArray);
                 
-                // Calculate average volume for background intensity
                 let sum = 0;
                 for (let i = 0; i < Math.min(32, bufferLength); i++) {
                     sum += dataArray[i];
                 }
                 const averageVolume = sum / Math.min(32, bufferLength);
-                const intensity = averageVolume / 255; // 0 to 1
+                const intensity = averageVolume / 255;
                 
-                // Base background with animated colors based on music
                 const hue1 = (Date.now() * 0.02 + intensity * 180) % 360;
                 const hue2 = (hue1 + 60) % 360;
                 const brightness = 0.1 + (intensity * 0.3);
                 
-                // Create dynamic gradient background
                 const gradient = this.ctx.createLinearGradient(0, 0, this.width, this.height);
                 gradient.addColorStop(0, `hsla(${hue1}, 70%, ${brightness * 100}%, 0.3)`);
                 gradient.addColorStop(0.5, `hsla(${hue2}, 80%, ${brightness * 50}%, 0.2)`);
@@ -1238,7 +1791,6 @@
                 this.ctx.fillStyle = gradient;
                 this.ctx.fillRect(0, 0, this.width, this.height);
                 
-                // Add frequency bars in background for visual effect
                 const barCount = 8;
                 const barWidth = this.width / barCount;
                 for (let i = 0; i < barCount; i++) {
@@ -1250,7 +1802,6 @@
                     this.ctx.fillRect(i * barWidth, this.height - barHeight, barWidth - 2, barHeight);
                 }
                 
-                // Pulsing overlay based on bass frequencies
                 const bassSum = dataArray.slice(0, 4).reduce((a, b) => a + b, 0) / (4 * 255);
                 if (bassSum > 0.1) {
                     this.ctx.fillStyle = `rgba(255, 255, 255, ${bassSum * 0.05})`;
@@ -1266,7 +1817,6 @@
                     this.ctx.shadowBlur = 40;
                     this.ctx.shadowColor = '#ffff00';
                     
-                    // Dash trail
                     for (let i = 1; i <= 3; i++) {
                         this.ctx.globalAlpha = 0.3 / i;
                         this.ctx.fillRect(this.player.x - (i * 10), this.player.y, 
@@ -1315,12 +1865,7 @@
                     const progressPercent = currentTime / this.audioDuration;
                     const progressWidth = songProgressBarWidth * progressPercent;
                     
-                    const gradient = this.ctx.createLinearGradient(songProgressX, songProgressY, 
-                                                                   songProgressX + progressWidth, songProgressY);
-                    gradient.addColorStop(0, '#ff6b6b');
-                    gradient.addColorStop(0.5, '#ffd93d');
-                    gradient.addColorStop(1, '#6bcf7f');
-                    this.ctx.fillStyle = gradient;
+                    this.ctx.fillStyle = '#00ffff';
                     this.ctx.fillRect(songProgressX, songProgressY, progressWidth, songProgressBarHeight);
                     
                     // Border
@@ -1341,7 +1886,7 @@
                 }
                 
                 // Health bar (top-left)
-                const healthBarWidth = 250;
+                const healthBarWidth = Math.min(250, this.width * 0.3);
                 const healthBarHeight = 30;
                 
                 this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
@@ -1380,7 +1925,7 @@
                 
                 // Score and stats (top-right)
                 const statsX = this.width - padding;
-                const fontSize = 20;
+                const fontSize = Math.max(16, this.width * 0.025);
                 this.ctx.font = 'bold ' + fontSize + 'px Arial';
                 this.ctx.textAlign = 'right';
                 this.ctx.textBaseline = 'top';
@@ -1390,54 +1935,10 @@
                 this.ctx.fillText('Dodged: ' + this.dodgedCount, statsX, padding + fontSize + 5);
                 this.ctx.fillText('Difficulty: ' + this.difficultyConfig.name, statsX, padding + (fontSize + 5) * 2);
                 
-                // Dash status (bottom-center)
-                const dashBarWidth = 200;
-                const dashBarHeight = 15;
-                const dashX = (this.width - dashBarWidth) / 2;
-                const dashY = this.height - 80;
-                
-                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                this.ctx.fillRect(dashX - 5, dashY - 25, dashBarWidth + 10, 55);
-                
-                let dashText = 'Ready!';
-                let dashColor = '#00ff00';
-                let dashPercent = 1.0;
-                
-                if (this.player.isDashing) {
-                    dashText = 'DASHING!';
-                    dashColor = '#ffff00';
-                    dashPercent = this.player.dashDuration / this.player.dashMaxDuration;
-                } else if (this.player.dashCooldown > 0) {
-                    dashText = 'Cooldown';
-                    dashColor = '#ff8800';
-                    dashPercent = 1.0 - (this.player.dashCooldown / this.player.dashMaxCooldown);
-                }
-                
-                this.ctx.fillStyle = dashColor;
-                this.ctx.font = 'bold 14px Arial';
-                this.ctx.textAlign = 'center';
-                this.ctx.fillText('Dash: ' + dashText, dashX + dashBarWidth / 2, dashY - 10);
-                
-                // Dash bar
-                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                this.ctx.fillRect(dashX, dashY, dashBarWidth, dashBarHeight);
-                
-                const dashGradient = this.ctx.createLinearGradient(dashX, dashY, 
-                                                                   dashX + dashBarWidth * dashPercent, dashY);
-                dashGradient.addColorStop(0, '#00ffff');
-                dashGradient.addColorStop(1, '#00ccff');
-                this.ctx.fillStyle = dashGradient;
-                this.ctx.fillRect(dashX, dashY, dashBarWidth * dashPercent, dashBarHeight);
-                
-                this.ctx.strokeStyle = '#ffffff';
-                this.ctx.lineWidth = 2;
-                this.ctx.strokeRect(dashX, dashY, dashBarWidth, dashBarHeight);
-                
                 this.ctx.restore();
             }
 
             drawPauseScreen() {
-                // Draw game in background (dimmed)
                 this.ctx.save();
                 this.ctx.globalAlpha = 0.3;
                 this.drawGrid();
@@ -1445,14 +1946,12 @@
                 this.drawPlayer();
                 this.ctx.restore();
                 
-                // Pause overlay
                 this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 this.ctx.fillRect(0, 0, this.width, this.height);
                 
                 const centerX = this.width / 2;
                 const centerY = this.height / 2;
                 
-                // Pause panel
                 const panelWidth = Math.min(600, this.width * 0.8);
                 const panelHeight = Math.min(500, this.height * 0.7);
                 const panelX = centerX - panelWidth / 2;
@@ -1464,21 +1963,18 @@
                 this.ctx.lineWidth = 3;
                 this.ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
                 
-                // Title
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.font = 'bold ' + Math.floor(panelHeight * 0.12) + 'px Arial';
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText('⏸ PAUSED', centerX, panelY + panelHeight * 0.15);
                 
-                // Volume slider
                 const sliderY = panelY + panelHeight * 0.35;
                 this.interactiveElements.volumeSlider = this.ui.drawSlider(
                     panelX + 40, sliderY, panelWidth - 80, 30, 
                     this.volume, 100, 'Volume:'
                 );
                 
-                // Resume button
                 const resumeBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.5, 
                                                      240, 50, 'Resume', false);
                 this.interactiveElements.resumeBtn = {
@@ -1487,7 +1983,6 @@
                     callback: () => this.togglePause()
                 };
                 
-                // Return to menu button
                 const menuBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.64, 
                                                    240, 50, 'Return to Menu', false);
                 this.interactiveElements.menuBtn = {
@@ -1498,14 +1993,12 @@
             }
 
             drawGameOverScreen() {
-                // Dark overlay
                 this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
                 this.ctx.fillRect(0, 0, this.width, this.height);
                 
                 const centerX = this.width / 2;
                 const centerY = this.height / 2;
                 
-                // Panel
                 const panelWidth = Math.min(500, this.width * 0.8);
                 const panelHeight = Math.min(450, this.height * 0.7);
                 const panelX = centerX - panelWidth / 2;
@@ -1517,14 +2010,12 @@
                 this.ctx.lineWidth = 3;
                 this.ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
                 
-                // Title
                 this.ctx.fillStyle = '#ff0000';
                 this.ctx.font = 'bold ' + Math.floor(panelHeight * 0.12) + 'px Arial';
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText('💀 GAME OVER', centerX, panelY + panelHeight * 0.15);
                 
-                // Stats
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.font = Math.floor(panelHeight * 0.06) + 'px Arial';
                 const statsY = panelY + panelHeight * 0.35;
@@ -1535,7 +2026,6 @@
                 this.ctx.fillText('Survival Time: ' + this.formatTime(this.finalSurvivalTime), 
                                  centerX, statsY + lineHeight * 2);
                 
-                // Buttons
                 const tryBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.68, 
                                                   240, 50, 'Try Again', false);
                 this.interactiveElements.tryBtn = {
@@ -1554,14 +2044,12 @@
             }
 
             drawVictoryScreen() {
-                // Bright overlay
                 this.ctx.fillStyle = 'rgba(0, 50, 0, 0.85)';
                 this.ctx.fillRect(0, 0, this.width, this.height);
                 
                 const centerX = this.width / 2;
                 const centerY = this.height / 2;
                 
-                // Panel
                 const panelWidth = Math.min(500, this.width * 0.8);
                 const panelHeight = Math.min(500, this.height * 0.7);
                 const panelX = centerX - panelWidth / 2;
@@ -1573,14 +2061,12 @@
                 this.ctx.lineWidth = 3;
                 this.ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
                 
-                // Title
                 this.ctx.fillStyle = '#00ff00';
                 this.ctx.font = 'bold ' + Math.floor(panelHeight * 0.12) + 'px Arial';
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText('🏆 VICTORY!', centerX, panelY + panelHeight * 0.15);
                 
-                // Stats
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.font = Math.floor(panelHeight * 0.06) + 'px Arial';
                 const statsY = panelY + panelHeight * 0.35;
@@ -1599,7 +2085,6 @@
                     this.ctx.fillText('⭐ PERFECT RUN! ⭐', centerX, statsY + lineHeight * 4);
                 }
                 
-                // Buttons
                 const againBtn = this.ui.drawButton(centerX - 120, panelY + panelHeight * 0.72, 
                                                     240, 50, 'Play Again', false);
                 this.interactiveElements.againBtn = {
@@ -1627,16 +2112,22 @@
                 this.isRunning = false;
                 this.currentScreen = 'gameover';
                 this.audio.pause();
-                // FIX: Store final survival time to stop counting
                 this.finalSurvivalTime = (Date.now() - this.gameStartTime - this.totalPausedTime) / 1000;
+                this.updateMobileControlsVisibility();
+                
+                // Allow portrait orientation in game over screen
+                this.unlockOrientation();
             }
 
             victory() {
                 this.isRunning = false;
                 this.currentScreen = 'victory';
                 this.audio.pause();
-                // FIX: Store final survival time to stop counting
                 this.finalSurvivalTime = (Date.now() - this.gameStartTime - this.totalPausedTime) / 1000;
+                this.updateMobileControlsVisibility();
+                
+                // Allow portrait orientation in victory screen
+                this.unlockOrientation();
             }
 
             reset() {
@@ -1654,7 +2145,6 @@
                 this.totalPausedTime = 0;
                 this.pauseStartTime = 0;
                 this.keys = {};
-                // Reset health regeneration timer
                 this.healthRegenTimer = 0;
             }
 
@@ -1676,6 +2166,10 @@
                 this.loadingProgress = undefined;
                 this.totalPausedTime = 0;
                 this.pauseStartTime = 0;
+                this.updateMobileControlsVisibility();
+                
+                // Allow portrait orientation in menu
+                this.unlockOrientation();
             }
 
             openFileDialog() {
@@ -1723,11 +2217,9 @@
                     
                     setTimeout(() => {
                         this.loadingProgress = 1.0;
-                        // Instead of auto-starting, show ready state with Start button
                         this.statusColor = '#00ff00';
                         this.loadingProgress = undefined;
                         
-                        // Store the audio and obstacles for manual start
                         this.pendingAudio = new Audio(URL.createObjectURL(file));
                         this.pendingObstacles = [...obstacles];
                     }, 800);
