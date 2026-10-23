@@ -3,11 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Rhythm Obstacle Runner - Dynamic Essentia Engine</title>
-    
-    <!-- Load Essentia.js WebAssembly Core and Wrapper -->
-    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia.js-core.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia-wasm.web.js"></script>
+    <title>Rhythm Runner</title>
 
     <style>
         * {
@@ -51,7 +47,6 @@
             -webkit-transform: translateZ(0);
         }
 
-        /* Mobile Controls - Hidden on Desktop by Default */
         .mobile-controls {
             display: none;
             position: fixed;
@@ -139,7 +134,6 @@
             border-color: #ff6464;
         }
 
-        /* Explicitly show touch controls ONLY on touch viewports */
         @media (max-width: 1024px) and (hover: none) and (pointer: coarse) {
             .mobile-controls {
                 display: block;
@@ -171,7 +165,6 @@
 <body>
     <canvas id="gameCanvas"></canvas>
 
-    <!-- Mobile Controls -->
     <div class="mobile-controls">
         <div class="portrait-notice">
             Please rotate your device to landscape for the best gameplay experience!
@@ -198,189 +191,199 @@
     </div>
 
     <script>
-        // ==================== NON-BLOCKING ESSENTIA & ANALYSIS ENGINE ====================
-        class EssentiaBeatDetector {
-            constructor() {
-                this.essentia = null;
-                this.isInitialized = false;
-                this.initPromise = this.init(); // Pre-load WASM in background immediately
-            }
-
-            async init() {
-                if (this.isInitialized) return;
-                if (typeof EssentiaWASM !== 'undefined') {
-                    try {
-                        const wasmModule = await EssentiaWASM();
-                        this.essentia = new Essentia(wasmModule);
-                        this.isInitialized = true;
-                    } catch (e) {
-                        console.warn('EssentiaWASM background load error:', e);
-                    }
-                }
-            }
-
+        class UniquePatternDetector {
             async analyzeAudio(audioBuffer, onProgress) {
-                await this.initPromise;
-                if (!this.isInitialized && typeof EssentiaWASM !== 'undefined') {
-                    const wasmModule = await EssentiaWASM();
-                    this.essentia = new Essentia(wasmModule);
-                    this.isInitialized = true;
-                }
-
-                if (onProgress) onProgress('Extracting audio transients');
+                if (onProgress) onProgress('Filtering quiet volumes & analyzing peaks');
                 await new Promise(r => setTimeout(r, 10));
 
                 const sampleRate = audioBuffer.sampleRate;
                 const channelData = audioBuffer.getChannelData(0);
+                const totalSamples = channelData.length;
 
-                let rawBeats = [];
-                if (this.essentia) {
-                    try {
-                        const audioVector = this.essentia.arrayToVector(channelData);
-                        const rhythmResults = this.essentia.RhythmExtractor2013(audioVector);
-                        rawBeats = this.essentia.vectorToArray(rhythmResults.ticks);
-                    } catch (e) {
-                        console.warn('RhythmExtractor2013 execution notice:', e);
-                    }
+                let maxPeak = 0.001;
+                for (let i = 0; i < totalSamples; i++) {
+                    const abs = Math.abs(channelData[i]);
+                    if (abs > maxPeak) maxPeak = abs;
+                }
+                const normalized = new Float32Array(totalSamples);
+                for (let i = 0; i < totalSamples; i++) {
+                    normalized[i] = channelData[i] / maxPeak;
                 }
 
-                await new Promise(r => setTimeout(r, 10));
+                const hopSize = 1024;
+                const bassEnergy = [];     
+                const midEnergy = [];      
+                const trebleEnergy = [];   
 
-                // 1. General Obstacle Analysis (RMS Energy & Ticks for Squares/Triangles)
-                const obstacles = [];
-                const hopSize = 2048;
-                const rmsValues = [];
+                let totalEnergySum = 0;
+                let frameCount = 0;
 
-                for (let i = 0; i < channelData.length; i += hopSize) {
-                    let sum = 0;
-                    const sliceEnd = Math.min(i + hopSize, channelData.length);
-                    for (let j = i; j < sliceEnd; j++) {
-                        sum += channelData[j] * channelData[j];
-                    }
-                    rmsValues.push(Math.sqrt(sum / (sliceEnd - i)));
-                }
+                for (let i = 0; i < totalSamples; i += hopSize) {
+                    const end = Math.min(i + hopSize, totalSamples);
+                    let lowSum = 0;
+                    let midSum = 0;
+                    let highSum = 0;
 
-                const windowSize = 10;
-                const minGapMs = 250;
-                let lastTimestamp = -1000;
-
-                const combinedTimestamps = [];
-                if (rawBeats.length > 0) {
-                    rawBeats.forEach(sec => combinedTimestamps.push(sec * 1000));
-                }
-
-                for (let i = windowSize; i < rmsValues.length - windowSize; i++) {
-                    let localAvg = 0;
-                    for (let w = -windowSize; w <= windowSize; w++) {
-                        localAvg += rmsValues[i + w];
-                    }
-                    localAvg /= (windowSize * 2 + 1);
-
-                    if (rmsValues[i] > localAvg * 1.35 && rmsValues[i] > 0.03) {
-                        combinedTimestamps.push((i * hopSize / sampleRate) * 1000);
-                    }
-                }
-
-                combinedTimestamps.sort((a, b) => a - b);
-
-                combinedTimestamps.forEach((timestampMs, index) => {
-                    if (timestampMs - lastTimestamp >= minGapMs) {
-                        const type = index % 2 === 0 ? 'square' : 'triangle';
-                        obstacles.push({
-                            time: timestampMs,
-                            type: type,
-                            energy: 0.8
-                        });
-                        lastTimestamp = timestampMs;
-                    }
-                });
-
-                if (onProgress) onProgress('Mapping dynamic laser drops');
-                await new Promise(r => setTimeout(r, 10));
-
-                // 2. Independent Laser Detection Algorithm
-                const laserHop = 1024;
-                const highBandEnergy = [];
-                for (let i = laserHop; i < channelData.length; i += laserHop) {
-                    let diffSum = 0;
-                    const end = Math.min(i + laserHop, channelData.length);
                     for (let j = i; j < end; j++) {
-                        const diff = Math.abs(channelData[j] - channelData[j - 1]);
-                        diffSum += diff;
+                        const val = normalized[j];
+                        lowSum += val * val;
+                        if (j > i) {
+                            const delta = Math.abs(val - normalized[j - 1]);
+                            midSum += delta;
+                            if (j % 2 === 0) highSum += delta;
+                        }
                     }
-                    highBandEnergy.push(diffSum / laserHop);
+
+                    const len = end - i;
+                    const bassVal = Math.sqrt(lowSum / len);
+                    const midVal = midSum / len;
+                    const highVal = highSum / len;
+
+                    bassEnergy.push(bassVal);
+                    midEnergy.push(midVal);
+                    trebleEnergy.push(highVal);
+
+                    totalEnergySum += bassVal + midVal + highVal;
+                    frameCount++;
                 }
 
-                let lastLaserTime = -3000;
-                for (let i = 5; i < highBandEnergy.length - 5; i++) {
-                    let localFluxAvg = 0;
-                    for (let w = -5; w <= 5; w++) {
-                        localFluxAvg += highBandEnergy[i + w];
-                    }
-                    localFluxAvg /= 11;
+                // Compute overall average volume to filter out quiet background audio
+                const averageVolumeThreshold = (totalEnergySum / (frameCount * 3)) * 1.35;
 
-                    if (highBandEnergy[i] > localFluxAvg * 1.8 && highBandEnergy[i] > 0.05) {
-                        const laserTimeMs = (i * laserHop / sampleRate) * 1000;
-                        if (laserTimeMs - lastLaserTime >= 4000) {
-                            obstacles.push({
-                                time: laserTimeMs,
-                                type: 'laser',
-                                energy: 1.0
-                            });
-                            lastLaserTime = laserTimeMs;
+                const obstacles = [];
+                const minGapMs = 150;
+                let lastTimestamp = -1000;
+                const directions = ['right-to-left', 'left-to-right', 'top-to-bottom', 'bottom-to-top'];
+
+                // 1. Detect Squares from Bass (filtering out quiet portions)
+                const bassWin = 6;
+                for (let i = bassWin; i < bassEnergy.length - bassWin; i++) {
+                    if (bassEnergy[i] < averageVolumeThreshold) continue; // Quiet filter
+
+                    let localAvg = 0;
+                    for (let w = -bassWin; w <= bassWin; w++) localAvg += bassEnergy[i + w];
+                    localAvg /= (bassWin * 2 + 1);
+
+                    if (bassEnergy[i] > localAvg * 1.25) {
+                        const timeMs = (i * hopSize / sampleRate) * 1000;
+                        if (timeMs - lastTimestamp >= minGapMs) {
+                            const dir = directions[obstacles.length % directions.length];
+                            obstacles.push({ time: timeMs, type: 'square', direction: dir, energy: bassEnergy[i] });
+                            lastTimestamp = timeMs;
+                        }
+                    }
+                }
+
+                // 2. Detect Triangles from Mid-range activity
+                const midWin = 4;
+                for (let i = midWin; i < midEnergy.length - midWin; i++) {
+                    if (midEnergy[i] < averageVolumeThreshold * 0.8) continue; // Quiet filter
+
+                    let localAvg = 0;
+                    for (let w = -midWin; w <= midWin; w++) localAvg += midEnergy[i + w];
+                    localAvg /= (midWin * 2 + 1);
+
+                    if (midEnergy[i] > localAvg * 1.1) {
+                        const timeMs = (i * hopSize / sampleRate) * 1000;
+                        if (timeMs - lastTimestamp >= 180) {
+                            const dir = directions[obstacles.length % directions.length];
+                            obstacles.push({ time: timeMs, type: 'triangle', direction: dir, energy: midEnergy[i] });
+                            lastTimestamp = timeMs;
+                        }
+                    }
+                }
+
+                // 3. Detect Lasers from Treble transients
+                const trebleWin = 6;
+                for (let i = trebleWin; i < trebleEnergy.length - trebleWin; i++) {
+                    if (trebleEnergy[i] < averageVolumeThreshold * 0.7) continue; // Quiet filter
+
+                    let localAvg = 0;
+                    for (let w = -trebleWin; w <= trebleWin; w++) localAvg += trebleEnergy[i + w];
+                    localAvg /= (trebleWin * 2 + 1);
+
+                    if (trebleEnergy[i] > localAvg * 1.35) {
+                        const timeMs = (i * hopSize / sampleRate) * 1000;
+                        if (timeMs - lastTimestamp >= 800) {
+                            const dir = directions[obstacles.length % directions.length];
+                            obstacles.push({ time: timeMs, type: 'laser', direction: dir, energy: trebleEnergy[i] });
+                            lastTimestamp = timeMs;
                         }
                     }
                 }
 
                 obstacles.sort((a, b) => a.time - b.time);
 
-                if (obstacles.length === 0) {
-                    for (let t = 2000; t < audioBuffer.duration * 1000 - 2000; t += 1500) {
-                        obstacles.push({ time: t, type: 'square', energy: 0.5 });
+                // Fallback guarantee for quiet/ambient songs
+                const totalDurationMs = audioBuffer.duration * 1000;
+                if (obstacles.length < 20) {
+                    for (let t = 1200; t < totalDurationMs - 1200; t += 700) {
+                        const existing = obstacles.some(o => Math.abs(o.time - t) < 200);
+                        if (!existing) {
+                            const types = ['square', 'triangle', 'laser'];
+                            const chosenType = types[Math.floor(t / 700) % types.length];
+                            const dir = directions[obstacles.length % directions.length];
+                            obstacles.push({ time: t, type: chosenType, direction: dir, energy: 0.5 });
+                        }
                     }
                 }
 
+                obstacles.sort((a, b) => a.time - b.time);
                 return obstacles;
             }
         }
 
-        // ==================== DIFFICULTY SETTINGS ====================
         const DIFFICULTY_CONFIGS = {
             easy: {
                 name: 'Easy',
-                obstacleSpeedMultiplier: 0.6,
-                spawnRateThreshold: 0.35, // Higher threshold filters out minor notes so fewer obstacles spam
-                damageMultiplier: 0.7,
-                warningDuration: 2000,
-                playerSpeed: 5
+                obstacleSpeedMultiplier: 0.75,
+                spawnStep: 3,
+                damageMultiplier: 0.5,
+                warningDuration: 1800,
+                playerSpeed: 6.5,
+                scoreMultiplier: 0.7,
+                baseHealth: 100,
+                regenInterval: 3000,
+                regenAmount: 3
             },
             medium: {
                 name: 'Medium',
-                obstacleSpeedMultiplier: 1.0,
-                spawnRateThreshold: 0.60,
-                damageMultiplier: 1.0,
-                warningDuration: 1500,
-                playerSpeed: 6
+                obstacleSpeedMultiplier: 0.95,
+                spawnStep: 2,
+                damageMultiplier: 0.85,
+                warningDuration: 1300,
+                playerSpeed: 7.0,
+                scoreMultiplier: 1.0,
+                baseHealth: 100,
+                regenInterval: 5000,
+                regenAmount: 2
             },
             hard: {
                 name: 'Hard',
                 obstacleSpeedMultiplier: 1.2,
-                spawnRateThreshold: 0.85,
-                damageMultiplier: 1.3,
-                warningDuration: 1100,
-                playerSpeed: 7
+                spawnStep: 1,
+                damageMultiplier: 1.2,
+                warningDuration: 900,
+                playerSpeed: 7.5,
+                scoreMultiplier: 1.5,
+                baseHealth: 100,
+                regenInterval: 8000,
+                regenAmount: 1
             },
             epic: {
                 name: 'Epic Gamer',
-                obstacleSpeedMultiplier: 1.6,
-                spawnRateThreshold: 1.0, // Spawns all detected obstacles
+                obstacleSpeedMultiplier: 1.45,
+                spawnStep: 1,
                 damageMultiplier: 1.5,
-                warningDuration: 800,
-                playerSpeed: 8
+                warningDuration: 600,
+                playerSpeed: 8.0,
+                scoreMultiplier: 2.0,
+                baseHealth: 100,
+                regenInterval: 0,
+                regenAmount: 0
             }
         };
 
-        // ==================== UI RENDERER ====================
         class UIRenderer {
             constructor(ctx, canvas) {
                 this.ctx = ctx;
@@ -468,13 +471,12 @@
             }
         }
 
-        // ==================== GAME ENGINE ====================
         class RhythmRunner {
             constructor(canvas) {
                 this.canvas = canvas;
                 this.ctx = canvas.getContext('2d');
                 this.ui = new UIRenderer(this.ctx, canvas);
-                this.beatDetector = new EssentiaBeatDetector();
+                this.beatDetector = new UniquePatternDetector();
                 
                 this.resizeCanvas();
                 window.addEventListener('resize', () => {
@@ -482,32 +484,32 @@
                     this.updateMobileControlsVisibility();
                 });
                 
-                this.difficulty = 'easy';
-                this.difficultyConfig = DIFFICULTY_CONFIGS.easy;
+                this.difficulty = 'medium';
+                this.difficultyConfig = DIFFICULTY_CONFIGS.medium;
                 
                 this.player = {
                     x: 100,
                     y: 350,
                     width: 30,
                     height: 30,
-                    speed: 6,
+                    speed: 7.0,
                     health: 100,
                     maxHealth: 100,
                     isDashing: false,
                     dashCooldown: 0,
                     dashDuration: 0,
                     dashSpeed: 18,
-                    dashMaxCooldown: 2000,
+                    dashMaxCooldown: 1800,
                     dashMaxDuration: 200,
-                    regenAmount: 3,
-                    regenInterval: 0
+                    regenAmount: 2,
+                    regenInterval: 5000
                 };
                 this.setDifficulty(this.difficulty);
                 
                 this.obstacles = [];
                 this.obstacleTimestamps = [];
                 this.score = 0;
-                this.dodgedCount = 0;
+                this.estimatedScore = 1000;
                 this.gameTime = 0;
                 this.isRunning = false;
                 this.isPaused = false;
@@ -531,6 +533,7 @@
                 this.pendingObstacles = null;
                 this.statusMessage = '';
                 this.isAnalyzing = false;
+                this.cachedSongName = '';
                 
                 this.setupInput();
                 this.setupMobileControls();
@@ -538,17 +541,6 @@
 
             isMobileDevice() {
                 return window.innerWidth <= 1024 && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-            }
-
-            getMobileScale() {
-                return Math.min(1, window.innerWidth / 400);
-            }
-
-            scaleForMobile(size) {
-                if (this.isMobileDevice()) {
-                    return size * this.getMobileScale();
-                }
-                return size;
             }
 
             resizeCanvas() {
@@ -581,13 +573,10 @@
                 this.difficultyConfig = DIFFICULTY_CONFIGS[difficulty];
                 if (this.player) {
                     this.player.speed = this.difficultyConfig.playerSpeed;
-                }
-                if (difficulty === 'easy') {
-                    this.player.regenInterval = 3000;
-                } else if (difficulty === 'medium') {
-                    this.player.regenInterval = 7000;
-                } else {
-                    this.player.regenInterval = 0;
+                    this.player.maxHealth = this.difficultyConfig.baseHealth;
+                    this.player.health = this.difficultyConfig.baseHealth;
+                    this.player.regenInterval = this.difficultyConfig.regenInterval;
+                    this.player.regenAmount = this.difficultyConfig.regenAmount;
                 }
             }
 
@@ -597,7 +586,9 @@
                     this.keys[e.key] = true;
                     if (e.key === ' ' || e.key === 'Escape') {
                         e.preventDefault();
-                        if (this.currentScreen === 'game') this.togglePause();
+                        if (this.currentScreen === 'game' || this.currentScreen === 'pause') {
+                            this.togglePause();
+                        }
                     }
                     if ((e.key === 'Shift' || e.shiftKey) && this.currentScreen === 'game' && !this.isPaused) {
                         e.preventDefault();
@@ -639,9 +630,6 @@
                         this.handleSliderDrag(x, y);
                     } else if (this.interactiveElements.menuVolumeSlider && this.ui.isPointInRect(x, y, this.interactiveElements.menuVolumeSlider)) {
                         this.isSliderDragging = 'menuVolume';
-                        this.handleSliderDrag(x, y);
-                    } else if (this.interactiveElements.songSlider && this.ui.isPointInRect(x, y, this.interactiveElements.songSlider)) {
-                        this.isSliderDragging = 'song';
                         this.handleSliderDrag(x, y);
                     }
                 });
@@ -693,7 +681,7 @@
                 if (pauseBtn) {
                     const pauseStart = (e) => {
                         e.preventDefault();
-                        if (this.currentScreen === 'game') {
+                        if (this.currentScreen === 'game' || this.currentScreen === 'pause') {
                             this.togglePause();
                             pauseBtn.classList.add('pressed');
                             setTimeout(() => pauseBtn.classList.remove('pressed'), 200);
@@ -710,18 +698,11 @@
                     const percent = Math.max(0, Math.min(1, (x - slider.x) / slider.width));
                     this.volume = percent * 100;
                     if (this.audio) this.audio.volume = this.volume / 100;
-                } else if (this.isSliderDragging === 'song' && this.interactiveElements.songSlider && this.audioDuration > 0) {
-                    const percent = Math.max(0, Math.min(1, (x - this.interactiveElements.songSlider.x) / this.interactiveElements.songSlider.width));
-                    const seekTime = percent * this.audioDuration;
-                    if (this.audio) {
-                        this.audio.currentTime = seekTime;
-                        this.audioStartTime = Date.now() - (seekTime * 1000) - this.totalPausedTime;
-                    }
                 }
             }
 
             handleClick(x, y) {
-                if (this.isAnalyzing) return; // Block clicks during analysis
+                if (this.isAnalyzing) return;
                 for (let key in this.interactiveElements) {
                     if (this.interactiveElements[key] && this.interactiveElements[key].type === 'button') {
                         const rect = this.interactiveElements[key];
@@ -743,14 +724,17 @@
 
             loadObstacles(timestamps) {
                 const filtered = [];
-                const threshold = this.difficultyConfig.spawnRateThreshold;
+                const step = this.difficultyConfig.spawnStep;
+                
                 for (let i = 0; i < timestamps.length; i++) {
-                    // Filter using spawnRateThreshold (lower threshold = fewer obstacles kept)
-                    if (timestamps[i].type === 'laser' || (i / timestamps.length) <= threshold || (i % Math.max(1, Math.floor(1 / threshold))) === 0) {
+                    if (timestamps[i].type === 'laser' || i % step === 0) {
                         filtered.push(timestamps[i]);
                     }
                 }
+                
                 this.obstacleTimestamps = filtered.sort((a, b) => a.time - b.time);
+                const totalPossibleNearMisses = this.obstacleTimestamps.length;
+                this.estimatedScore = Math.max(500, Math.round(totalPossibleNearMisses * 35 * this.difficultyConfig.scoreMultiplier));
             }
 
             start(audio) {
@@ -799,20 +783,36 @@
                 return mins + ':' + (secs < 10 ? '0' : '') + secs;
             }
 
+            getScoreSentence() {
+                const ratio = this.score / Math.max(1, this.estimatedScore);
+                if (ratio >= 2.05) return "[ø̸͔͕͊̾̄͘5̶̢̛͉͎́͑̋́X̸̢͍̦̲͖͑͋͒̀]"; 
+                if (ratio >= 2.0)  return "EPIC-GAMER";
+                if (ratio >= 1.75) return "ELITE";
+                if (ratio >= 1.5)  return "GOD-LIKE";
+                if (ratio >= 1.25) return "HOLY";
+                if (ratio >= 1.1)  return "WOW";
+                if (ratio >= 0.9)  return "PERFECT";
+                if (ratio >= 0.75) return "GREAT";
+                if (ratio >= 0.55) return "GOOD";
+                if (ratio >= 0.35) return "OKAY";
+                if (ratio >= 0.18) return "NOT BAD";
+                return "MEH";
+            }
+
             togglePause() {
-                if (!this.isRunning) return;
+                if (!this.isRunning && this.currentScreen !== 'pause') return;
                 this.isPaused = !this.isPaused;
                 this.currentScreen = this.isPaused ? 'pause' : 'game';
                 this.updateMobileControlsVisibility();
                 if (this.isPaused) {
                     this.pauseStartTime = Date.now();
-                    this.audio.pause();
+                    if (this.audio) this.audio.pause();
                 } else {
                     if (this.pauseStartTime > 0) {
                         this.totalPausedTime += Date.now() - this.pauseStartTime;
                         this.pauseStartTime = 0;
                     }
-                    this.audio.play();
+                    if (this.audio) this.audio.play();
                 }
             }
 
@@ -820,72 +820,97 @@
                 const config = this.difficultyConfig;
                 const gameArea = this.getGameArea();
                 
-                const spawnGameTime = timestamp.time - config.warningDuration;
-                
+                const direction = timestamp.direction || 'right-to-left';
+
                 const obstacle = {
                     type: timestamp.type,
                     beatTime: timestamp.time,
+                    direction: direction,
                     x: 0,
                     y: 0,
                     width: 0,
                     height: 0,
-                    speed: 0,
-                    damage: Math.round(10 * config.damageMultiplier),
+                    speed: (5.5 + Math.random() * 1.5) * config.obstacleSpeedMultiplier,
+                    damage: Math.round(15 * config.damageMultiplier),
                     isActive: false,
-                    spawnTime: spawnGameTime,
+                    spawnTime: 0,
                     activateTime: timestamp.time,
                     warningDuration: config.warningDuration,
                     nearMissed: false
                 };
 
-                switch (timestamp.type) {
-                    case 'laser':
-                        obstacle.width = 8;
-                        obstacle.height = gameArea.height;
-                        obstacle.x = gameArea.x + Math.random() * (gameArea.width - 100) + 50;
-                        obstacle.y = gameArea.y;
-                        obstacle.isVertical = Math.random() > 0.4;
-                        if (!obstacle.isVertical) {
-                            obstacle.width = gameArea.width;
-                            obstacle.height = 8;
-                            obstacle.x = gameArea.x;
-                            obstacle.y = gameArea.y + Math.random() * (gameArea.height - 100) + 50;
-                        }
-                        obstacle.damage = Math.round(15 * config.damageMultiplier);
-                        break;
-                    case 'square':
-                        obstacle.width = 40;
-                        obstacle.height = 40;
+                const centerX = gameArea.x + (gameArea.width / 2);
+                const centerY = gameArea.y + (gameArea.height / 2);
+
+                // Configure starting positions and dimensions based on 4-way direction
+                switch (direction) {
+                    case 'right-to-left':
+                        obstacle.width = timestamp.type === 'square' ? 40 : (timestamp.type === 'triangle' ? 48 : 12);
+                        obstacle.height = timestamp.type === 'laser' ? gameArea.height : (timestamp.type === 'square' ? 40 : 48);
                         obstacle.x = gameArea.x + gameArea.width;
-                        obstacle.y = gameArea.y + 40 + Math.random() * (gameArea.height - 120);
-                        obstacle.speed = (5 + Math.random() * 2) * config.obstacleSpeedMultiplier;
+                        obstacle.y = timestamp.type === 'laser' ? gameArea.y : (gameArea.y + 40 + Math.random() * (gameArea.height - 120));
+                        if (timestamp.type === 'laser') obstacle.isVertical = Math.random() > 0.4;
                         break;
-                    case 'triangle':
-                        obstacle.width = 50;
-                        obstacle.height = 50;
-                        obstacle.x = gameArea.x + gameArea.width;
-                        obstacle.y = gameArea.y + 30 + Math.random() * (gameArea.height - 100);
-                        obstacle.speed = 4 * config.obstacleSpeedMultiplier;
-                        obstacle.curveDirection = Math.random() > 0.5 ? 1 : -1;
-                        obstacle.curveAmount = 0;
-                        obstacle.curveSpeed = 0.04 + Math.random() * 0.03;
+
+                    case 'left-to-right':
+                        obstacle.width = timestamp.type === 'square' ? 40 : (timestamp.type === 'triangle' ? 48 : 12);
+                        obstacle.height = timestamp.type === 'laser' ? gameArea.height : (timestamp.type === 'square' ? 40 : 48);
+                        obstacle.x = gameArea.x - obstacle.width;
+                        obstacle.y = timestamp.type === 'laser' ? gameArea.y : (gameArea.y + 40 + Math.random() * (gameArea.height - 120));
+                        break;
+
+                    case 'top-to-bottom':
+                        obstacle.width = timestamp.type === 'laser' ? gameArea.width : (timestamp.type === 'square' ? 40 : 48);
+                        obstacle.height = timestamp.type === 'square' ? 40 : (timestamp.type === 'triangle' ? 48 : 12);
+                        obstacle.x = timestamp.type === 'laser' ? gameArea.x : (gameArea.x + 40 + Math.random() * (gameArea.width - 120));
+                        obstacle.y = gameArea.y - obstacle.height;
+                        break;
+
+                    case 'bottom-to-top':
+                        obstacle.width = timestamp.type === 'laser' ? gameArea.width : (timestamp.type === 'square' ? 40 : 48);
+                        obstacle.height = timestamp.type === 'square' ? 40 : (timestamp.type === 'triangle' ? 48 : 12);
+                        obstacle.x = timestamp.type === 'laser' ? gameArea.x : (gameArea.x + 40 + Math.random() * (gameArea.width - 120));
+                        obstacle.y = gameArea.y + gameArea.height;
                         break;
                 }
+
+                // Lead time calculation to align precisely with center beat
+                let distanceToTravel = 0;
+                if (direction === 'right-to-left') distanceToTravel = (gameArea.x + gameArea.width) - centerX;
+                else if (direction === 'left-to-right') distanceToTravel = centerX - gameArea.x;
+                else if (direction === 'top-to-bottom') distanceToTravel = centerY - gameArea.y;
+                else if (direction === 'bottom-to-top') distanceToTravel = (gameArea.y + gameArea.height) - centerY;
+
+                obstacle.spawnLeadTime = Math.max(config.warningDuration, (distanceToTravel / (obstacle.speed * 60)) * 1000);
+                obstacle.spawnTime = timestamp.time - obstacle.spawnLeadTime;
                 this.obstacles.push(obstacle);
             }
 
             update() {
                 if (!this.isRunning || this.isPaused) return;
 
-                this.gameTime = Date.now() - this.audioStartTime - this.totalPausedTime;
+                if (this.audio) {
+                    const actualAudioMs = this.audio.currentTime * 1000;
+                    if (Math.abs(this.gameTime - actualAudioMs) > 40) {
+                        this.gameTime = actualAudioMs;
+                    } else {
+                        this.gameTime += 16.66;
+                    }
+                }
                 
-                if (this.audio.ended) {
+                if (this.audio && this.audio.ended) {
                     this.victory();
                     return;
                 }
                 
-                while (this.obstacleTimestamps.length > 0 && this.obstacleTimestamps[0].time - this.difficultyConfig.warningDuration <= this.gameTime) {
-                    this.spawnObstacle(this.obstacleTimestamps.shift());
+                while (this.obstacleTimestamps.length > 0) {
+                    const nextBeat = this.obstacleTimestamps[0];
+                    const defaultLeadTime = 2500;
+                    if (nextBeat.time - defaultLeadTime <= this.gameTime) {
+                        this.spawnObstacle(this.obstacleTimestamps.shift());
+                    } else {
+                        break;
+                    }
                 }
                 
                 if (this.player.isDashing) {
@@ -921,31 +946,36 @@
                 for (let i = this.obstacles.length - 1; i >= 0; i--) {
                     const obs = this.obstacles[i];
                     
-                    if (!obs.isActive && this.gameTime >= obs.activateTime) {
+                    if (this.gameTime >= obs.spawnTime) {
                         obs.isActive = true;
                     }
                     
                     if (obs.isActive) {
-                        if (obs.type === 'square') {
-                            obs.x -= obs.speed;
-                        } else if (obs.type === 'triangle') {
-                            obs.x -= obs.speed;
-                            obs.curveAmount += obs.curveSpeed;
-                            obs.y += Math.sin(obs.curveAmount) * obs.curveDirection * 3;
-                            obs.y = Math.max(gameArea.y, Math.min(gameArea.y + gameArea.height - obs.height, obs.y));
-                        }
-                    } else {
-                        const warningProgress = Math.max(0, Math.min(1, (this.gameTime - obs.spawnTime) / obs.warningDuration));
-                        if (obs.type === 'square' || obs.type === 'triangle') {
-                            const startX = gameArea.x + gameArea.width + 100;
-                            const targetX = gameArea.x + gameArea.width - 200;
-                            obs.x = startX - (startX - targetX) * warningProgress;
+                        if (obs.direction === 'right-to-left') obs.x -= obs.speed;
+                        else if (obs.direction === 'left-to-right') obs.x += obs.speed;
+                        else if (obs.direction === 'top-to-bottom') obs.y += obs.speed;
+                        else if (obs.direction === 'bottom-to-top') obs.y -= obs.speed;
+
+                        if (obs.type === 'triangle') {
+                            obs.curveAmount = (obs.curveAmount || 0) + 0.05;
+                            if (obs.direction === 'right-to-left' || obs.direction === 'left-to-right') {
+                                obs.y += Math.sin(obs.curveAmount) * 2.5;
+                            } else {
+                                obs.x += Math.cos(obs.curveAmount) * 2.5;
+                            }
                         }
                     }
                     
-                    if (obs.x + obs.width < gameArea.x - 50) {
+                    // Out-of-bounds removal check
+                    let shouldRemove = false;
+                    if (obs.direction === 'right-to-left' && obs.x + obs.width < gameArea.x - 50) shouldRemove = true;
+                    if (obs.direction === 'left-to-right' && obs.x > gameArea.x + gameArea.width + 50) shouldRemove = true;
+                    if (obs.direction === 'top-to-bottom' && obs.y > gameArea.y + gameArea.height + 50) shouldRemove = true;
+                    if (obs.direction === 'bottom-to-top' && obs.y + obs.height < gameArea.y - 50) shouldRemove = true;
+                    if (obs.type === 'laser' && (this.gameTime - obs.activateTime > 1800)) shouldRemove = true;
+
+                    if (shouldRemove) {
                         this.obstacles.splice(i, 1);
-                        this.dodgedCount++;
                         continue;
                     }
                     
@@ -956,35 +986,14 @@
                         continue;
                     }
                     
-                    if (obs.isActive && obs.type !== 'laser' && this.player.isDashing && this.checkCollision(this.player, obs)) {
-                        this.obstacles.splice(i, 1);
-                        this.score += 25;
-                        this.dodgedCount++;
-                        continue;
-                    }
-                    
                     if (obs.isActive && !obs.nearMissed) {
                         const distance = this.getClosestDistance(this.player, obs);
                         const nearMissThreshold = 45; 
                         if (distance > 0 && distance < nearMissThreshold) {
                             obs.nearMissed = true;
-                            const bonusPoints = Math.round(50 * (1 - (distance / nearMissThreshold))) + 10;
+                            const bonusPoints = Math.round((Math.round(25 * (1 - (distance / nearMissThreshold))) + 5) * this.difficultyConfig.scoreMultiplier);
                             this.score += bonusPoints;
-                            this.dodgedCount++;
                         }
-                    }
-                    
-                    let shouldRemove = false;
-                    if (obs.type === 'square' || obs.type === 'triangle') {
-                        if (obs.x < -100) shouldRemove = true;
-                    } else if (obs.type === 'laser') {
-                        if (this.gameTime - obs.activateTime > 2000) shouldRemove = true;
-                    }
-                    
-                    if (shouldRemove) {
-                        this.obstacles.splice(i, 1);
-                        this.score += 10;
-                        this.dodgedCount++;
                     }
                 }
             }
@@ -999,10 +1008,8 @@
             getClosestDistance(player, obstacle) {
                 const pCenterX = player.x + player.width / 2;
                 const pCenterY = player.y + player.height / 2;
-                
                 const closestX = Math.max(obstacle.x, Math.min(pCenterX, obstacle.x + obstacle.width));
                 const closestY = Math.max(obstacle.y, Math.min(pCenterY, obstacle.y + obstacle.height));
-                
                 const dx = pCenterX - closestX;
                 const dy = pCenterY - closestY;
                 return Math.sqrt(dx * dx + dy * dy);
@@ -1049,25 +1056,25 @@
                 this.ctx.textBaseline = 'middle';
                 this.ctx.shadowBlur = 15;
                 this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
-                this.ctx.fillText('RHYTHM OBSTACLE RUNNER', centerX, this.height * 0.10);
+                this.ctx.fillText('Rhythm Runner', centerX, this.height * 0.08);
                 
                 this.ctx.shadowBlur = 0;
                 this.ctx.font = '16px Arial';
                 this.ctx.fillStyle = '#aaa';
-                this.ctx.fillText('Powered by Essentia.js & Dynamic Audio Transient Analysis', centerX, this.height * 0.16);
+                this.ctx.fillText('Everything is a rhythm game', centerX, this.height * 0.13);
                 
                 this.ctx.fillStyle = '#00ffff';
-                this.ctx.font = 'bold 20px Arial';
-                this.ctx.fillText('Select Difficulty:', centerX, this.height * 0.23);
+                this.ctx.font = 'bold 18px Arial';
+                this.ctx.fillText('Select Difficulty:', centerX, this.height * 0.19);
                 
                 const difficulties = ['easy', 'medium', 'hard', 'epic'];
                 const diffNames = ['Easy', 'Medium', 'Hard', 'Epic Gamer'];
-                const btnWidth = 110;
-                const btnHeight = 45;
-                const spacing = 15;
+                const btnWidth = 100;
+                const btnHeight = 40;
+                const spacing = 12;
                 const totalWidth = (difficulties.length * btnWidth) + ((difficulties.length - 1) * spacing);
                 let startX = centerX - (totalWidth / 2);
-                let y = this.height * 0.29;
+                let y = this.height * 0.23;
                 
                 for (let i = 0; i < difficulties.length; i++) {
                     const x = startX + (i * (btnWidth + spacing));
@@ -1081,13 +1088,13 @@
                 }
                 
                 const hasLoadedSong = this.pendingAudio && this.pendingObstacles;
-                const fileBtnWidth = 280;
-                const fileBtnHeight = 55;
-                const fileBtnY = this.height * 0.42;
+                const fileBtnWidth = 260;
+                const fileBtnHeight = 50;
+                const fileBtnY = this.height * 0.35;
                 
                 if (hasLoadedSong) {
-                    const leftX = centerX - fileBtnWidth - 15;
-                    const rightX = centerX + 15;
+                    const leftX = centerX - fileBtnWidth - 10;
+                    const rightX = centerX + 10;
                     
                     const fileBtn = this.ui.drawButton(leftX, fileBtnY, fileBtnWidth, fileBtnHeight, this.isAnalyzing ? 'Analyzing...' : 'Choose Music File', false, this.isAnalyzing);
                     if (!this.isAnalyzing) {
@@ -1102,17 +1109,59 @@
                         this.interactiveElements.fileBtn = { ...fileBtn, type: 'button', callback: () => this.openFileDialog() };
                     }
                 }
+
+                // Display Song Cache Management
+                const cachedKeys = Object.keys(localStorage).filter(k => k.startsWith('rhythm_cache_'));
+                if (cachedKeys.length > 0) {
+                    this.ctx.fillStyle = '#00ffff';
+                    this.ctx.font = 'bold 14px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(`Cached Songs (${cachedKeys.length}):`, centerX, this.height * 0.47);
+
+                    let cacheY = this.height * 0.51;
+                    const maxDisplay = 3;
+                    for (let i = 0; i < Math.min(maxDisplay, cachedKeys.length); i++) {
+                        const songKey = cachedKeys[i];
+                        const songName = songKey.replace('rhythm_cache_', '');
+                        const displayName = songName.length > 25 ? songName.substring(0, 22) + '...' : songName;
+
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                        this.ctx.font = '13px Arial';
+                        this.ctx.textAlign = 'left';
+                        this.ctx.fillText(displayName, centerX - 180, cacheY + 15);
+
+                        const delBtn = this.ui.drawButton(centerX + 80, cacheY, 100, 30, 'Remove');
+                        const currentKey = songKey;
+                        this.interactiveElements['del_cache_' + i] = {
+                            ...delBtn,
+                            type: 'button',
+                            callback: () => {
+                                localStorage.removeItem(currentKey);
+                            }
+                        };
+                        cacheY += 38;
+                    }
+
+                    const clearAllBtn = this.ui.drawButton(centerX - 100, fileBtnY + fileBtnHeight + 15, 200, 36, 'Clear All Cache');
+                    this.interactiveElements.clearAllBtn = {
+                        ...clearAllBtn,
+                        type: 'button',
+                        callback: () => {
+                            cachedKeys.forEach(k => localStorage.removeItem(k));
+                        }
+                    };
+                }
                 
-                // Volume slider positioned directly below the file uploader button
                 this.interactiveElements.menuVolumeSlider = this.ui.drawSlider(
-                    centerX - 180, fileBtnY + fileBtnHeight + 20, 360, 30, this.volume, 100, 'Volume:'
+                    centerX - 170, this.height * 0.78, 340, 28, this.volume, 100, 'Volume:'
                 );
 
                 if (this.statusMessage) {
                     this.ctx.fillStyle = '#00ffff';
-                    this.ctx.font = '16px Arial';
+                    this.ctx.font = '15px Arial';
+                    this.ctx.textAlign = 'center';
                     const dots = this.isAnalyzing ? '.'.repeat(Math.floor(Date.now() / 300) % 4) : '';
-                    this.ctx.fillText(this.statusMessage + dots, centerX, this.height * 0.72);
+                    this.ctx.fillText(this.statusMessage + dots, centerX, this.height * 0.86);
                 }
             }
 
@@ -1145,8 +1194,8 @@
 
             drawObstacles() {
                 this.obstacles.forEach(obs => {
-                    const isWarning = !obs.isActive;
-                    const warningProgress = Math.max(0, Math.min(1, (this.gameTime - obs.spawnTime) / obs.warningDuration));
+                    const isWarning = this.gameTime < obs.activateTime;
+                    const warningProgress = Math.max(0, Math.min(1, (this.gameTime - obs.spawnTime) / (obs.activateTime - obs.spawnTime)));
                     const alpha = isWarning ? (0.2 + warningProgress * 0.4) : 1.0;
                     
                     this.ctx.save();
@@ -1276,11 +1325,10 @@
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText(`${Math.round(this.player.health)} HP`, padding + healthWidth / 2, padding + healthHeight / 2);
                 
-                this.ctx.font = 'bold 16px Arial';
+                this.ctx.font = 'bold 18px Arial';
                 this.ctx.textAlign = 'right';
                 this.ctx.fillStyle = '#00ffff';
-                this.ctx.fillText('Score: ' + this.score, this.width - padding, padding + 10);
-                this.ctx.fillText('Dodged: ' + this.dodgedCount, this.width - padding, padding + 35);
+                this.ctx.fillText('Score: ' + this.score, this.width - padding, padding + 20);
                 
                 this.ctx.restore();
             }
@@ -1332,7 +1380,7 @@
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.font = '20px Arial';
                 this.ctx.fillText('Final Score: ' + this.score, cx, cy - 40);
-                this.ctx.fillText('Obstacles Dodged: ' + this.dodgedCount, cx, cy - 10);
+                this.ctx.fillText('Rating: ' + this.getScoreSentence(), cx, cy - 10);
                 this.ctx.fillText('Survival Time: ' + this.formatTime(this.finalSurvivalTime), cx, cy + 20);
                 
                 const tryBtn = this.ui.drawButton(cx - 120, cy + 70, 240, 45, 'Try Again', false);
@@ -1355,7 +1403,7 @@
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.font = '20px Arial';
                 this.ctx.fillText('Final Score: ' + this.score, cx, cy - 40);
-                this.ctx.fillText('Obstacles Dodged: ' + this.dodgedCount, cx, cy - 10);
+                this.ctx.fillText('Rating: ' + this.getScoreSentence(), cx, cy - 10);
                 
                 const againBtn = this.ui.drawButton(cx - 120, cy + 70, 240, 45, 'Play Again', false);
                 this.interactiveElements.againBtn = { ...againBtn, type: 'button', callback: () => this.restartGame() };
@@ -1373,16 +1421,16 @@
             gameOver() {
                 this.isRunning = false;
                 this.currentScreen = 'gameover';
-                this.audio.pause();
-                this.finalSurvivalTime = (Date.now() - this.gameStartTime - this.totalPausedTime) / 1000;
+                if (this.audio) this.audio.pause();
+                this.finalSurvivalTime = (this.audio ? this.audio.currentTime : 0);
                 this.updateMobileControlsVisibility();
             }
 
             victory() {
                 this.isRunning = false;
                 this.currentScreen = 'victory';
-                this.audio.pause();
-                this.finalSurvivalTime = (Date.now() - this.gameStartTime - this.totalPausedTime) / 1000;
+                if (this.audio) this.audio.pause();
+                this.finalSurvivalTime = (this.audio ? this.audio.currentTime : 0);
                 this.updateMobileControlsVisibility();
             }
 
@@ -1390,13 +1438,12 @@
                 const gameArea = this.getGameArea();
                 this.player.x = gameArea.x + 50;
                 this.player.y = gameArea.y + gameArea.height / 2;
-                this.player.health = 100;
+                this.player.health = this.player.maxHealth;
                 this.player.isDashing = false;
                 this.player.dashCooldown = 0;
                 this.player.dashDuration = 0;
                 this.obstacles = [];
                 this.score = 0;
-                this.dodgedCount = 0;
                 this.gameTime = 0;
                 this.isPaused = false;
                 this.totalPausedTime = 0;
@@ -1441,6 +1488,23 @@
                 const file = e.target.files[0];
                 if (!file) return;
                 this.audioFile = file;
+                this.cachedSongName = `rhythm_cache_${file.name}_${file.size}`;
+                
+                // Check cache first
+                const cachedData = localStorage.getItem(this.cachedSongName);
+                if (cachedData) {
+                    try {
+                        const obstacles = JSON.parse(cachedData);
+                        this.statusMessage = `Loaded ${obstacles.length} obstacles from cache!`;
+                        this.originalObstacles = obstacles;
+                        this.pendingAudio = new Audio(URL.createObjectURL(file));
+                        this.pendingObstacles = [...obstacles];
+                        return;
+                    } catch (err) {
+                        localStorage.removeItem(this.cachedSongName);
+                    }
+                }
+
                 this.isAnalyzing = true;
                 this.statusMessage = 'Decoding audio file';
 
@@ -1454,7 +1518,14 @@
                             this.statusMessage = msg;
                         });
 
-                        this.statusMessage = `Found ${obstacles.length} dynamic rhythm obstacles!`;
+                        // Save to localStorage cache
+                        try {
+                            localStorage.setItem(this.cachedSongName, JSON.stringify(obstacles));
+                        } catch (storageErr) {
+                            console.warn('Cache quota exceeded or unavailable', storageErr);
+                        }
+
+                        this.statusMessage = `Found ${obstacles.length} dynamically detected obstacles!`;
                         this.originalObstacles = obstacles;
                         this.pendingAudio = new Audio(URL.createObjectURL(file));
                         this.pendingObstacles = [...obstacles];
