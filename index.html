@@ -1728,7 +1728,7 @@
 
             reset() {
                 const gameArea = this.getGameArea();
-                this.player.x = gameArea.x + 50;
+                this.player.x = gameArea.x + gameArea.height / 2;
                 this.player.y = gameArea.y + gameArea.height / 2;
                 this.player.health = this.player.maxHealth;
                 this.player.isDashing = false;
