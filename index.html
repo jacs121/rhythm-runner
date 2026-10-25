@@ -575,7 +575,7 @@
                 var gameArea = this.getGameArea()
                 
                 this.player = {
-                    x: gameArea.x + 50,
+                    x: gameArea.x + gameArea.width / 2,
                     y: gameArea.y + gameArea.height / 2,
                     width: 30,
                     height: 30,
@@ -660,9 +660,9 @@
                 const margin = isMobile ? 20 : 30;
                 return {
                     x: margin,
-                    y: margin + 60,
+                    y: margin + 30,
                     width: this.width - (margin * 2),
-                    height: this.height - (margin * 2) - (isMobile ? 60 : 0)
+                    height: this.height - (margin * 2) - (isMobile ? 60 : 0) - 30
                 };
             }
 
