@@ -191,6 +191,87 @@
     </div>
 
     <script>
+        class IndexedDBCache {
+            constructor() {
+                this.dbName = 'RhythmRunnerCacheDB';
+                this.storeName = 'songs';
+                this.db = null;
+            }
+
+            async init() {
+                if (this.db) return this.db;
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, 1);
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains(this.storeName)) {
+                            db.createObjectStore(this.storeName, { keyPath: 'id' });
+                        }
+                    };
+                    request.onsuccess = (e) => {
+                        this.db = e.target.result;
+                        resolve(this.db);
+                    };
+                    request.onerror = (e) => reject(e);
+                });
+            }
+
+            async saveSong(id, title, fileBlob, obstacles) {
+                await this.init();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readwrite');
+                    const store = tx.objectStore(this.storeName);
+                    store.put({ id, title, fileBlob, obstacles });
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = (e) => reject(e);
+                });
+            }
+
+            async getSong(id) {
+                await this.init();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readonly');
+                    const store = tx.objectStore(this.storeName);
+                    const request = store.get(id);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = (e) => reject(e);
+                });
+            }
+
+            async getAllSongs() {
+                await this.init();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readonly');
+                    const store = tx.objectStore(this.storeName);
+                    const request = store.getAll();
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = (e) => reject(e);
+                });
+            }
+
+            async removeSong(id) {
+                await this.init();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readwrite');
+                    const store = tx.objectStore(this.storeName);
+                    store.delete(id);
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = (e) => reject(e);
+                });
+            }
+
+            async clearAll() {
+                await this.init();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readwrite');
+                    const store = tx.objectStore(this.storeName);
+                    store.clear();
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = (e) => reject(e);
+                });
+            }
+        }
+
         class UniquePatternDetector {
             async analyzeAudio(audioBuffer, onProgress) {
                 if (onProgress) onProgress('Filtering quiet volumes & analyzing peaks');
@@ -247,18 +328,14 @@
                     frameCount++;
                 }
 
-                // Compute overall average volume to filter out quiet background audio
                 const averageVolumeThreshold = (totalEnergySum / (frameCount * 3)) * 1.35;
-
                 const obstacles = [];
                 const minGapMs = 150;
                 let lastTimestamp = -1000;
-                const directions = ['right-to-left', 'left-to-right', 'top-to-bottom', 'bottom-to-top'];
 
-                // 1. Detect Squares from Bass (filtering out quiet portions)
                 const bassWin = 6;
                 for (let i = bassWin; i < bassEnergy.length - bassWin; i++) {
-                    if (bassEnergy[i] < averageVolumeThreshold) continue; // Quiet filter
+                    if (bassEnergy[i] < averageVolumeThreshold) continue;
 
                     let localAvg = 0;
                     for (let w = -bassWin; w <= bassWin; w++) localAvg += bassEnergy[i + w];
@@ -267,17 +344,15 @@
                     if (bassEnergy[i] > localAvg * 1.25) {
                         const timeMs = (i * hopSize / sampleRate) * 1000;
                         if (timeMs - lastTimestamp >= minGapMs) {
-                            const dir = directions[obstacles.length % directions.length];
-                            obstacles.push({ time: timeMs, type: 'square', direction: dir, energy: bassEnergy[i] });
+                            obstacles.push({ time: timeMs, type: 'square', energy: bassEnergy[i] });
                             lastTimestamp = timeMs;
                         }
                     }
                 }
 
-                // 2. Detect Triangles from Mid-range activity
                 const midWin = 4;
                 for (let i = midWin; i < midEnergy.length - midWin; i++) {
-                    if (midEnergy[i] < averageVolumeThreshold * 0.8) continue; // Quiet filter
+                    if (midEnergy[i] < averageVolumeThreshold * 0.8) continue;
 
                     let localAvg = 0;
                     for (let w = -midWin; w <= midWin; w++) localAvg += midEnergy[i + w];
@@ -286,17 +361,15 @@
                     if (midEnergy[i] > localAvg * 1.1) {
                         const timeMs = (i * hopSize / sampleRate) * 1000;
                         if (timeMs - lastTimestamp >= 180) {
-                            const dir = directions[obstacles.length % directions.length];
-                            obstacles.push({ time: timeMs, type: 'triangle', direction: dir, energy: midEnergy[i] });
+                            obstacles.push({ time: timeMs, type: 'triangle', energy: midEnergy[i] });
                             lastTimestamp = timeMs;
                         }
                     }
                 }
 
-                // 3. Detect Lasers from Treble transients
                 const trebleWin = 6;
                 for (let i = trebleWin; i < trebleEnergy.length - trebleWin; i++) {
-                    if (trebleEnergy[i] < averageVolumeThreshold * 0.7) continue; // Quiet filter
+                    if (trebleEnergy[i] < averageVolumeThreshold * 0.7) continue;
 
                     let localAvg = 0;
                     for (let w = -trebleWin; w <= trebleWin; w++) localAvg += trebleEnergy[i + w];
@@ -305,8 +378,7 @@
                     if (trebleEnergy[i] > localAvg * 1.35) {
                         const timeMs = (i * hopSize / sampleRate) * 1000;
                         if (timeMs - lastTimestamp >= 800) {
-                            const dir = directions[obstacles.length % directions.length];
-                            obstacles.push({ time: timeMs, type: 'laser', direction: dir, energy: trebleEnergy[i] });
+                            obstacles.push({ time: timeMs, type: 'laser', energy: trebleEnergy[i] });
                             lastTimestamp = timeMs;
                         }
                     }
@@ -314,7 +386,6 @@
 
                 obstacles.sort((a, b) => a.time - b.time);
 
-                // Fallback guarantee for quiet/ambient songs
                 const totalDurationMs = audioBuffer.duration * 1000;
                 if (obstacles.length < 20) {
                     for (let t = 1200; t < totalDurationMs - 1200; t += 700) {
@@ -322,8 +393,7 @@
                         if (!existing) {
                             const types = ['square', 'triangle', 'laser'];
                             const chosenType = types[Math.floor(t / 700) % types.length];
-                            const dir = directions[obstacles.length % directions.length];
-                            obstacles.push({ time: t, type: chosenType, direction: dir, energy: 0.5 });
+                            obstacles.push({ time: t, type: chosenType, energy: 0.5 });
                         }
                     }
                 }
@@ -332,6 +402,13 @@
                 return obstacles;
             }
         }
+
+        const GAME_MODES = {
+            classic: { name: 'Classic (1-Way)', directions: ['right-to-left'] },
+            sideBySide: { name: 'Side to Side (2-Way)', directions: ['right-to-left', 'left-to-right'] },
+            topToBottom: { name: 'Top to Bottom (2-Way)', directions: ['top-to-bottom', 'bottom-to-top'] },
+            omnidirectional: { name: 'Omni (4-Way)', directions: ['right-to-left', 'left-to-right', 'top-to-bottom', 'bottom-to-top'] }
+        };
 
         const DIFFICULTY_CONFIGS = {
             easy: {
@@ -411,7 +488,7 @@
                 
                 this.ctx.fillStyle = disabled ? 'rgba(255, 255, 255, 0.3)' : '#ffffff';
                 const isMobile = window.innerWidth < 900;
-                const textSize = isMobile ? Math.floor(height * 0.25) : Math.floor(height * 0.35);
+                const textSize = isMobile ? Math.floor(height * 0.25) : Math.floor(height * 0.32);
                 this.ctx.font = 'bold ' + textSize + 'px Arial';
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
@@ -477,6 +554,7 @@
                 this.ctx = canvas.getContext('2d');
                 this.ui = new UIRenderer(this.ctx, canvas);
                 this.beatDetector = new UniquePatternDetector();
+                this.idbCache = new IndexedDBCache();
                 
                 this.resizeCanvas();
                 window.addEventListener('resize', () => {
@@ -484,12 +562,13 @@
                     this.updateMobileControlsVisibility();
                 });
                 
+                this.gameMode = 'classic';
                 this.difficulty = 'medium';
                 this.difficultyConfig = DIFFICULTY_CONFIGS.medium;
                 
                 this.player = {
-                    x: 100,
-                    y: 350,
+                    x: window.innerWidth/2,
+                    y: window.innerHeight/2,
                     width: 30,
                     height: 30,
                     speed: 7.0,
@@ -525,6 +604,8 @@
                 this.volume = 70;
                 
                 this.currentScreen = 'menu';
+                this.showCacheModal = false;
+                this.cachedSongsList = [];
                 this.keys = {};
                 this.mousePos = { x: 0, y: 0 };
                 this.interactiveElements = {};
@@ -533,10 +614,19 @@
                 this.pendingObstacles = null;
                 this.statusMessage = '';
                 this.isAnalyzing = false;
-                this.cachedSongName = '';
                 
                 this.setupInput();
                 this.setupMobileControls();
+                this.refreshCacheList();
+            }
+
+            async refreshCacheList() {
+                try {
+                    this.cachedSongsList = await this.idbCache.getAllSongs();
+                } catch (e) {
+                    console.warn('IndexedDB not accessible:', e);
+                    this.cachedSongsList = [];
+                }
             }
 
             isMobileDevice() {
@@ -580,13 +670,19 @@
                 }
             }
 
+            setGameMode(modeKey) {
+                this.gameMode = modeKey;
+            }
+
             setupInput() {
                 window.addEventListener('keydown', (e) => {
                     if (e.key === 'Tab') { e.preventDefault(); return; }
                     this.keys[e.key] = true;
                     if (e.key === ' ' || e.key === 'Escape') {
                         e.preventDefault();
-                        if (this.currentScreen === 'game' || this.currentScreen === 'pause') {
+                        if (this.showCacheModal) {
+                            this.showCacheModal = false;
+                        } else if (this.currentScreen === 'game' || this.currentScreen === 'pause') {
                             this.togglePause();
                         }
                     }
@@ -625,12 +721,14 @@
                     const rect = this.canvas.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const y = e.clientY - rect.top;
-                    if (this.interactiveElements.volumeSlider && this.ui.isPointInRect(x, y, this.interactiveElements.volumeSlider)) {
-                        this.isSliderDragging = 'volume';
-                        this.handleSliderDrag(x, y);
-                    } else if (this.interactiveElements.menuVolumeSlider && this.ui.isPointInRect(x, y, this.interactiveElements.menuVolumeSlider)) {
-                        this.isSliderDragging = 'menuVolume';
-                        this.handleSliderDrag(x, y);
+                    if (!this.showCacheModal) {
+                        if (this.interactiveElements.volumeSlider && this.ui.isPointInRect(x, y, this.interactiveElements.volumeSlider)) {
+                            this.isSliderDragging = 'volume';
+                            this.handleSliderDrag(x, y);
+                        } else if (this.interactiveElements.menuVolumeSlider && this.ui.isPointInRect(x, y, this.interactiveElements.menuVolumeSlider)) {
+                            this.isSliderDragging = 'menuVolume';
+                            this.handleSliderDrag(x, y);
+                        }
                     }
                 });
 
@@ -681,7 +779,9 @@
                 if (pauseBtn) {
                     const pauseStart = (e) => {
                         e.preventDefault();
-                        if (this.currentScreen === 'game' || this.currentScreen === 'pause') {
+                        if (this.showCacheModal) {
+                            this.showCacheModal = false;
+                        } else if (this.currentScreen === 'game' || this.currentScreen === 'pause') {
                             this.togglePause();
                             pauseBtn.classList.add('pressed');
                             setTimeout(() => pauseBtn.classList.remove('pressed'), 200);
@@ -725,10 +825,15 @@
             loadObstacles(timestamps) {
                 const filtered = [];
                 const step = this.difficultyConfig.spawnStep;
+                const allowedDirections = GAME_MODES[this.gameMode].directions;
                 
+                let validCount = 0;
                 for (let i = 0; i < timestamps.length; i++) {
                     if (timestamps[i].type === 'laser' || i % step === 0) {
-                        filtered.push(timestamps[i]);
+                        const item = { ...timestamps[i] };
+                        item.direction = allowedDirections[validCount % allowedDirections.length];
+                        filtered.push(item);
+                        validCount++;
                     }
                 }
                 
@@ -819,7 +924,6 @@
             spawnObstacle(timestamp) {
                 const config = this.difficultyConfig;
                 const gameArea = this.getGameArea();
-                
                 const direction = timestamp.direction || 'right-to-left';
 
                 const obstacle = {
@@ -842,14 +946,12 @@
                 const centerX = gameArea.x + (gameArea.width / 2);
                 const centerY = gameArea.y + (gameArea.height / 2);
 
-                // Configure starting positions and dimensions based on 4-way direction
                 switch (direction) {
                     case 'right-to-left':
                         obstacle.width = timestamp.type === 'square' ? 40 : (timestamp.type === 'triangle' ? 48 : 12);
                         obstacle.height = timestamp.type === 'laser' ? gameArea.height : (timestamp.type === 'square' ? 40 : 48);
                         obstacle.x = gameArea.x + gameArea.width;
                         obstacle.y = timestamp.type === 'laser' ? gameArea.y : (gameArea.y + 40 + Math.random() * (gameArea.height - 120));
-                        if (timestamp.type === 'laser') obstacle.isVertical = Math.random() > 0.4;
                         break;
 
                     case 'left-to-right':
@@ -874,7 +976,6 @@
                         break;
                 }
 
-                // Lead time calculation to align precisely with center beat
                 let distanceToTravel = 0;
                 if (direction === 'right-to-left') distanceToTravel = (gameArea.x + gameArea.width) - centerX;
                 else if (direction === 'left-to-right') distanceToTravel = centerX - gameArea.x;
@@ -966,7 +1067,6 @@
                         }
                     }
                     
-                    // Out-of-bounds removal check
                     let shouldRemove = false;
                     if (obs.direction === 'right-to-left' && obs.x + obs.width < gameArea.x - 50) shouldRemove = true;
                     if (obs.direction === 'left-to-right' && obs.x > gameArea.x + gameArea.width + 50) shouldRemove = true;
@@ -1022,7 +1122,12 @@
                 this.updateMobileControlsVisibility();
                 
                 if (this.currentScreen === 'menu') {
-                    this.drawMenuScreen();
+                    if (this.showCacheModal) {
+                        this.drawMenuScreenWithoutButtons();
+                        this.drawCacheModal();
+                    } else {
+                        this.drawMenuScreen();
+                    }
                 } else if (this.currentScreen === 'game') {
                     this.drawGameScreen();
                 } else if (this.currentScreen === 'pause') {
@@ -1046,9 +1151,8 @@
                 }
             }
 
-            drawMenuScreen() {
-                const contentWidth = this.width;
-                const centerX = contentWidth / 2;
+            drawMenuScreenWithoutButtons() {
+                const centerX = this.width / 2;
                 
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.font = 'bold 36px Arial';
@@ -1063,34 +1167,107 @@
                 this.ctx.fillStyle = '#aaa';
                 this.ctx.fillText('Everything is a rhythm game', centerX, this.height * 0.13);
                 
+                this.drawModeSelectors(centerX, true);
+                this.drawDifficultySelectors(centerX, true);
+                
+                const hasLoadedSong = this.pendingAudio && this.pendingObstacles;
+                const fileBtnWidth = 260;
+                const fileBtnHeight = 45;
+                const fileBtnY = this.height * 0.52;
+                
+                if (hasLoadedSong) {
+                    const leftX = centerX - fileBtnWidth - 10;
+                    const rightX = centerX + 10;
+                    this.ui.drawButton(leftX, fileBtnY, fileBtnWidth, fileBtnHeight, 'Choose Music File', false, true);
+                    this.ui.drawButton(rightX, fileBtnY, fileBtnWidth, fileBtnHeight, 'Start Run!', true, true);
+                } else {
+                    this.ui.drawButton(centerX - fileBtnWidth / 2, fileBtnY, fileBtnWidth, fileBtnHeight, 'Choose Music File', false, true);
+                }
+
+                this.ui.drawButton(centerX - 130, fileBtnY + fileBtnHeight + 15, 260, 42, `Manage Cache (${this.cachedSongsList.length})`, false, true);
+                this.ui.drawSlider(centerX - 170, this.height * 0.80, 340, 28, this.volume, 100, 'Volume:');
+            }
+
+            drawModeSelectors(centerX, disabled = false) {
                 this.ctx.fillStyle = '#00ffff';
-                this.ctx.font = 'bold 18px Arial';
-                this.ctx.fillText('Select Difficulty:', centerX, this.height * 0.19);
+                this.ctx.font = 'bold 16px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('Select Game Mode:', centerX, this.height * 0.19);
+
+                const modes = Object.keys(GAME_MODES);
+                const btnWidth = 125;
+                const btnHeight = 36;
+                const spacing = 10;
+                const totalWidth = (modes.length * btnWidth) + ((modes.length - 1) * spacing);
+                let startX = centerX - (totalWidth / 2);
+                let y = this.height * 0.23;
+
+                modes.forEach((modeKey, index) => {
+                    const x = startX + (index * (btnWidth + spacing));
+                    const highlighted = this.gameMode === modeKey;
+                    const btn = this.ui.drawButton(x, y, btnWidth, btnHeight, GAME_MODES[modeKey].name, highlighted, disabled);
+                    if (!disabled) {
+                        this.interactiveElements['mode_' + modeKey] = {
+                            ...btn,
+                            type: 'button',
+                            callback: () => this.setGameMode(modeKey)
+                        };
+                    }
+                });
+            }
+
+            drawDifficultySelectors(centerX, disabled = false) {
+                this.ctx.fillStyle = '#00ffff';
+                this.ctx.font = 'bold 16px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('Select Difficulty:', centerX, this.height * 0.35);
                 
                 const difficulties = ['easy', 'medium', 'hard', 'epic'];
                 const diffNames = ['Easy', 'Medium', 'Hard', 'Epic Gamer'];
-                const btnWidth = 100;
-                const btnHeight = 40;
-                const spacing = 12;
+                const btnWidth = 110;
+                const btnHeight = 36;
+                const spacing = 10;
                 const totalWidth = (difficulties.length * btnWidth) + ((difficulties.length - 1) * spacing);
                 let startX = centerX - (totalWidth / 2);
-                let y = this.height * 0.23;
+                let y = this.height * 0.39;
                 
                 for (let i = 0; i < difficulties.length; i++) {
                     const x = startX + (i * (btnWidth + spacing));
                     const highlighted = this.difficulty === difficulties[i];
-                    const btn = this.ui.drawButton(x, y, btnWidth, btnHeight, diffNames[i], highlighted);
-                    this.interactiveElements['diff_' + i] = {
-                        ...btn,
-                        type: 'button',
-                        callback: () => this.setDifficulty(difficulties[i])
-                    };
+                    const btn = this.ui.drawButton(x, y, btnWidth, btnHeight, diffNames[i], highlighted, disabled);
+                    if (!disabled) {
+                        this.interactiveElements['diff_' + i] = {
+                            ...btn,
+                            type: 'button',
+                            callback: () => this.setDifficulty(difficulties[i])
+                        };
+                    }
                 }
+            }
+
+            drawMenuScreen() {
+                const centerX = this.width / 2;
                 
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold 36px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.shadowBlur = 15;
+                this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                this.ctx.fillText('Rhythm Runner', centerX, this.height * 0.08);
+                
+                this.ctx.shadowBlur = 0;
+                this.ctx.font = '16px Arial';
+                this.ctx.fillStyle = '#aaa';
+                this.ctx.fillText('Everything is a rhythm game', centerX, this.height * 0.13);
+                
+                this.drawModeSelectors(centerX);
+                this.drawDifficultySelectors(centerX);
+
                 const hasLoadedSong = this.pendingAudio && this.pendingObstacles;
                 const fileBtnWidth = 260;
-                const fileBtnHeight = 50;
-                const fileBtnY = this.height * 0.35;
+                const fileBtnHeight = 45;
+                const fileBtnY = this.height * 0.52;
                 
                 if (hasLoadedSong) {
                     const leftX = centerX - fileBtnWidth - 10;
@@ -1110,50 +1287,17 @@
                     }
                 }
 
-                // Display Song Cache Management
-                const cachedKeys = Object.keys(localStorage).filter(k => k.startsWith('rhythm_cache_'));
-                if (cachedKeys.length > 0) {
-                    this.ctx.fillStyle = '#00ffff';
-                    this.ctx.font = 'bold 14px Arial';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.fillText(`Cached Songs (${cachedKeys.length}):`, centerX, this.height * 0.47);
-
-                    let cacheY = this.height * 0.51;
-                    const maxDisplay = 3;
-                    for (let i = 0; i < Math.min(maxDisplay, cachedKeys.length); i++) {
-                        const songKey = cachedKeys[i];
-                        const songName = songKey.replace('rhythm_cache_', '');
-                        const displayName = songName.length > 25 ? songName.substring(0, 22) + '...' : songName;
-
-                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                        this.ctx.font = '13px Arial';
-                        this.ctx.textAlign = 'left';
-                        this.ctx.fillText(displayName, centerX - 180, cacheY + 15);
-
-                        const delBtn = this.ui.drawButton(centerX + 80, cacheY, 100, 30, 'Remove');
-                        const currentKey = songKey;
-                        this.interactiveElements['del_cache_' + i] = {
-                            ...delBtn,
-                            type: 'button',
-                            callback: () => {
-                                localStorage.removeItem(currentKey);
-                            }
-                        };
-                        cacheY += 38;
-                    }
-
-                    const clearAllBtn = this.ui.drawButton(centerX - 100, fileBtnY + fileBtnHeight + 15, 200, 36, 'Clear All Cache');
-                    this.interactiveElements.clearAllBtn = {
-                        ...clearAllBtn,
+                const cacheBtn = this.ui.drawButton(centerX - 130, fileBtnY + fileBtnHeight + 15, 260, 42, `Manage Cache (${this.cachedSongsList.length})`, false, this.cachedSongsList.length === 0);
+                if (this.cachedSongsList.length > 0) {
+                    this.interactiveElements.manageCacheBtn = {
+                        ...cacheBtn,
                         type: 'button',
-                        callback: () => {
-                            cachedKeys.forEach(k => localStorage.removeItem(k));
-                        }
+                        callback: () => { this.showCacheModal = true; }
                     };
                 }
                 
                 this.interactiveElements.menuVolumeSlider = this.ui.drawSlider(
-                    centerX - 170, this.height * 0.78, 340, 28, this.volume, 100, 'Volume:'
+                    centerX - 170, this.height * 0.80, 340, 28, this.volume, 100, 'Volume:'
                 );
 
                 if (this.statusMessage) {
@@ -1161,8 +1305,109 @@
                     this.ctx.font = '15px Arial';
                     this.ctx.textAlign = 'center';
                     const dots = this.isAnalyzing ? '.'.repeat(Math.floor(Date.now() / 300) % 4) : '';
-                    this.ctx.fillText(this.statusMessage + dots, centerX, this.height * 0.86);
+                    this.ctx.fillText(this.statusMessage + dots, centerX, this.height * 0.90);
                 }
+            }
+
+            drawCacheModal() {
+                this.interactiveElements = {};
+
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+
+                const cx = this.width / 2;
+                const cy = this.height / 2;
+                const modalWidth = Math.min(620, this.width - 40);
+                const modalHeight = Math.min(480, this.height - 40);
+                const modalX = cx - modalWidth / 2;
+                const modalY = cy - modalHeight / 2;
+
+                this.ctx.fillStyle = 'rgba(26, 26, 46, 0.98)';
+                this.ctx.fillRect(modalX, modalY, modalWidth, modalHeight);
+                this.ctx.strokeStyle = '#00ffff';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(modalX, modalY, modalWidth, modalHeight);
+
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold 24px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('Cached Songs', cx, modalY + 35);
+
+                let listY = modalY + 75;
+                const itemHeight = 45;
+                const maxVisible = 6;
+
+                for (let i = 0; i < Math.min(maxVisible, this.cachedSongsList.length); i++) {
+                    const song = this.cachedSongsList[i];
+                    const displayName = song.title.length > 22 ? song.title.substring(0, 19) + '...' : song.title;
+
+                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+                    this.ctx.fillRect(modalX + 25, listY, modalWidth - 50, itemHeight - 8);
+
+                    this.ctx.fillStyle = '#ffffff';
+                    this.ctx.font = '14px Arial';
+                    this.ctx.textAlign = 'left';
+                    this.ctx.fillText(displayName, modalX + 40, listY + (itemHeight - 8) / 2);
+
+                    const loadBtn = this.ui.drawButton(modalX + modalWidth - 210, listY + 3, 80, 30, 'Load');
+                    this.interactiveElements['modal_load_' + i] = {
+                        ...loadBtn,
+                        type: 'button',
+                        callback: () => {
+                            try {
+                                this.audioFile = song.fileBlob;
+                                this.originalObstacles = song.obstacles;
+                                this.pendingObstacles = [...song.obstacles];
+                                this.pendingAudio = new Audio(URL.createObjectURL(song.fileBlob));
+                                this.statusMessage = `Ready: "${song.title}" (${song.obstacles.length} hazards loaded!)`;
+                                this.showCacheModal = false;
+                            } catch (err) {
+                                console.error('Failed to load song from IndexedDB', err);
+                            }
+                        }
+                    };
+
+                    const removeBtn = this.ui.drawButton(modalX + modalWidth - 120, listY + 3, 90, 30, 'Remove');
+                    this.interactiveElements['modal_del_' + i] = {
+                        ...removeBtn,
+                        type: 'button',
+                        callback: async () => {
+                            await this.idbCache.removeSong(song.id);
+                            await this.refreshCacheList();
+                        }
+                    };
+
+                    listY += itemHeight;
+                }
+
+                if (this.cachedSongsList.length === 0) {
+                    this.ctx.fillStyle = '#aaa';
+                    this.ctx.font = '16px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText('No cached songs found.', cx, modalY + modalHeight / 2 - 20);
+                }
+
+                const clearAllBtn = this.ui.drawButton(modalX + 30, modalY + modalHeight - 65, 180, 42, 'Clear All Cache', false, this.cachedSongsList.length === 0);
+                if (this.cachedSongsList.length > 0) {
+                    this.interactiveElements.modalClearAll = {
+                        ...clearAllBtn,
+                        type: 'button',
+                        callback: async () => {
+                            await this.idbCache.clearAll();
+                            await this.refreshCacheList();
+                        }
+                    };
+                }
+
+                const closeBtn = this.ui.drawButton(modalX + modalWidth - 210, modalY + modalHeight - 65, 180, 42, 'Close', true);
+                this.interactiveElements.modalClose = {
+                    ...closeBtn,
+                    type: 'button',
+                    callback: () => {
+                        this.showCacheModal = false;
+                    }
+                };
             }
 
             drawGameScreen() {
@@ -1468,6 +1713,7 @@
                 this.obstacleTimestamps = [];
                 this.isRunning = false;
                 this.currentScreen = 'menu';
+                this.showCacheModal = false;
                 this.pendingAudio = null;
                 this.pendingObstacles = null;
                 this.statusMessage = '';
@@ -1488,21 +1734,19 @@
                 const file = e.target.files[0];
                 if (!file) return;
                 this.audioFile = file;
-                this.cachedSongName = `rhythm_cache_${file.name}_${file.size}`;
-                
-                // Check cache first
-                const cachedData = localStorage.getItem(this.cachedSongName);
-                if (cachedData) {
-                    try {
-                        const obstacles = JSON.parse(cachedData);
-                        this.statusMessage = `Loaded ${obstacles.length} obstacles from cache!`;
-                        this.originalObstacles = obstacles;
-                        this.pendingAudio = new Audio(URL.createObjectURL(file));
-                        this.pendingObstacles = [...obstacles];
+                const songId = `song_${file.name}_${file.size}`;
+
+                try {
+                    const cachedSong = await this.idbCache.getSong(songId);
+                    if (cachedSong) {
+                        this.statusMessage = `Loaded "${file.name}" from Cache!`;
+                        this.originalObstacles = cachedSong.obstacles;
+                        this.pendingAudio = new Audio(URL.createObjectURL(cachedSong.fileBlob));
+                        this.pendingObstacles = [...cachedSong.obstacles];
                         return;
-                    } catch (err) {
-                        localStorage.removeItem(this.cachedSongName);
                     }
+                } catch (err) {
+                    console.warn('Cache lookup failed, re-analyzing', err);
                 }
 
                 this.isAnalyzing = true;
@@ -1518,14 +1762,14 @@
                             this.statusMessage = msg;
                         });
 
-                        // Save to localStorage cache
                         try {
-                            localStorage.setItem(this.cachedSongName, JSON.stringify(obstacles));
+                            await this.idbCache.saveSong(songId, file.name, file, obstacles);
+                            await this.refreshCacheList();
                         } catch (storageErr) {
-                            console.warn('Cache quota exceeded or unavailable', storageErr);
+                            console.warn('Failed to save to IndexedDB', storageErr);
                         }
 
-                        this.statusMessage = `Found ${obstacles.length} dynamically detected obstacles!`;
+                        this.statusMessage = `Analyzed & Cached "${file.name}" (${obstacles.length} hazards)!`;
                         this.originalObstacles = obstacles;
                         this.pendingAudio = new Audio(URL.createObjectURL(file));
                         this.pendingObstacles = [...obstacles];
